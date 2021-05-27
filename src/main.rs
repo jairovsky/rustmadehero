@@ -1,12 +1,14 @@
+#![windows_subsystem = "windows"]
+
 use bindings::{
-    Windows::Win32::Graphics::Gdi::HBRUSH,
+    Windows::Win32::Graphics::Gdi::{HBRUSH, PAINTSTRUCT, BeginPaint, EndPaint, PatBlt, WHITENESS, BLACKNESS,},
     Windows::Win32::System::Diagnostics::Debug::GetLastError,
     Windows::Win32::System::SystemServices::{GetModuleHandleW, LRESULT, PWSTR},
     Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
     Windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassExW,
-        TranslateMessage, CW_USEDEFAULT, HWND, LPARAM, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
-        WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        TranslateMessage, GetWindowRect, CW_USEDEFAULT, HWND, LPARAM, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
+        WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, WM_ACTIVATEAPP, WM_PAINT
     },
 };
 
@@ -28,7 +30,7 @@ impl PWSTRCreator for PWSTR {
 }
 
 fn debug_last_err() {
-    unsafe { println!("{:?}", GetLastError()) }
+    unsafe { debug!("{:?}", GetLastError()) }
 }
 
 extern "system" fn window_event_handler(
@@ -37,10 +39,40 @@ extern "system" fn window_event_handler(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    unsafe { DefWindowProcW(window, message, wparam, lparam) }
+
+    match message {
+        WM_ACTIVATEAPP => {
+
+            debug!("window activated");
+
+            LRESULT(0)
+        },
+        WM_PAINT => {
+            unsafe {
+                let mut paint = PAINTSTRUCT::default();
+                let mut hdc = BeginPaint(window, &mut paint);
+                //GetWindowRect(window, &mut rect);
+                let x = paint.rcPaint.left;
+                let y = paint.rcPaint.top;
+                let w = paint.rcPaint.right - x;
+                let h = paint.rcPaint.bottom - y;
+                PatBlt(hdc, x, y, w, h, BLACKNESS);
+                EndPaint(window, &mut paint);
+            }
+
+            LRESULT(0)
+        }
+        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) }
+    }
 }
 
+use log::{debug};
+
 fn main() -> windows::Result<()> {
+
+    log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
+    log::set_max_level(log::LevelFilter::Debug);
+
     let h_instance = unsafe { GetModuleHandleW(None) };
 
     let window_template = WNDCLASSEXW {
@@ -83,7 +115,6 @@ fn main() -> windows::Result<()> {
         while GetMessageW(&mut msg, hwnd, 0, 0).as_bool() {
             TranslateMessage(&mut msg);
             DispatchMessageW(&mut msg);
-            debug_last_err();
         }
     }
 

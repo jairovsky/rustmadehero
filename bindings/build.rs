@@ -1,6 +1,9 @@
 fn main() {
     windows::build!(
-        Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
+        Windows::Win32::UI::MenusAndResources::{
+            HCURSOR,
+            HICON,
+        },
         Windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW,
             RegisterClassExW,
@@ -8,6 +11,7 @@ fn main() {
             DefWindowProcW ,
             TranslateMessage,
             DispatchMessageW,
+            GetWindowRect,
             WNDCLASSEXW,
             WNDCLASS_STYLES,
             CW_USEDEFAULT,
@@ -20,8 +24,19 @@ fn main() {
             LPARAM,
             WPARAM,
             MSG,
+            WM_ACTIVATEAPP,
+            WM_PAINT,
         },
-        Windows::Win32::Graphics::Gdi::{HBRUSH},
+        Windows::Win32::Graphics::Gdi::{
+            HBRUSH,
+            PAINTSTRUCT,
+            BeginPaint,
+            EndPaint,
+            PatBlt,
+            WHITENESS,
+            BLACKNESS,
+            ROP_CODE,
+        },
         Windows::Win32::System::SystemServices::{GetModuleHandleW, PWSTR, LRESULT},
         Windows::Win32::System::Diagnostics::Debug::GetLastError,
     );

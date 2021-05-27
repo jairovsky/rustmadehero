@@ -10,3 +10,5 @@ edition = "2018"
 windows = "0.10.0"
 bindings = { package = "bindings", path = "bindings" }
 widestring = "0.4.3"
+log = "0.4.8"
+win_dbg_logger = "0.1.0"
