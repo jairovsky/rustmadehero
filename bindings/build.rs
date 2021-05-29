@@ -12,6 +12,7 @@ fn main() {
             TranslateMessage,
             DispatchMessageW,
             GetWindowRect,
+            PostQuitMessage,
             WNDCLASSEXW,
             WNDCLASS_STYLES,
             CW_USEDEFAULT,
@@ -26,6 +27,7 @@ fn main() {
             MSG,
             WM_ACTIVATEAPP,
             WM_PAINT,
+            WM_CLOSE,
         },
         Windows::Win32::Graphics::Gdi::{
             HBRUSH,

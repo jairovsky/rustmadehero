@@ -1,30 +1,33 @@
 #![windows_subsystem = "windows"]
 
+use log::debug;
+
 use bindings::{
-    Windows::Win32::Graphics::Gdi::{HBRUSH, PAINTSTRUCT, BeginPaint, EndPaint, PatBlt, WHITENESS, BLACKNESS,},
+    Windows::Win32::Graphics::Gdi::{
+        BeginPaint, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS,
+    },
     Windows::Win32::System::Diagnostics::Debug::GetLastError,
     Windows::Win32::System::SystemServices::{GetModuleHandleW, LRESULT, PWSTR},
     Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
     Windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassExW,
-        TranslateMessage, GetWindowRect, CW_USEDEFAULT, HWND, LPARAM, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
-        WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, WM_ACTIVATEAPP, WM_PAINT
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetWindowRect,
+        PostQuitMessage, RegisterClassExW, TranslateMessage, CW_USEDEFAULT, HWND, LPARAM, MSG,
+        WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WNDCLASSEXW,
+        WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
     },
 };
 
-// learn how to use
 use widestring::WideCString;
 
 trait PWSTRCreator {
     fn from_str(text: &'static str) -> PWSTR;
 }
 impl PWSTRCreator for PWSTR {
-    fn from_str(text: &'static str) -> PWSTR {
+    fn from_str(text: &'static str) -> Self {
         Self(
-            text.encode_utf16()
-                .chain(::std::iter::once(0))
-                .collect::<Vec<u16>>()
-                .as_mut_ptr(),
+            WideCString::from_str(text)
+                .expect("convesion to wide string")
+                .into_raw(),
         )
     }
 }
@@ -39,18 +42,23 @@ extern "system" fn window_event_handler(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-
     match message {
         WM_ACTIVATEAPP => {
-
             debug!("window activated");
 
             LRESULT(0)
-        },
+        }
+        WM_CLOSE => {
+            unsafe {
+                PostQuitMessage(0);
+            }
+
+            LRESULT(0)
+        }
         WM_PAINT => {
             unsafe {
                 let mut paint = PAINTSTRUCT::default();
-                let mut hdc = BeginPaint(window, &mut paint);
+                let hdc = BeginPaint(window, &mut paint);
                 //GetWindowRect(window, &mut rect);
                 let x = paint.rcPaint.left;
                 let y = paint.rcPaint.top;
@@ -62,14 +70,11 @@ extern "system" fn window_event_handler(
 
             LRESULT(0)
         }
-        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) }
+        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
     }
 }
 
-use log::{debug};
-
 fn main() -> windows::Result<()> {
-
     log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
 
