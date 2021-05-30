@@ -141,8 +141,8 @@ extern "system" fn window_event_handler(
 
             unsafe {
                 let mut ptr = game.bitmap_mem as *mut u32;
-                let lim = game.bitmap_info.bmiHeader.biWidth * game.bitmap_info.bmiHeader.biHeight;
-                for _ in 1..lim {
+                let n_pixels = game.bitmap_info.bmiHeader.biWidth * game.bitmap_info.bmiHeader.biHeight;
+                for _ in 1..n_pixels {
                     ptr = ptr.add(1);
                     *(ptr) = 0x00ffffff;
                 }
