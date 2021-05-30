@@ -4,17 +4,21 @@ use log::debug;
 
 use bindings::{
     Windows::Win32::Graphics::Gdi::{
-        BeginPaint, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS,
+        BeginPaint, CreateDIBSection, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS, HDC,
+        StretchDIBits, DeleteObject, GetDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, RGBQUAD,
+            SRCCOPY,
     },
     Windows::Win32::System::Diagnostics::Debug::GetLastError,
-    Windows::Win32::System::SystemServices::{GetModuleHandleW, LRESULT, PWSTR},
+    Windows::Win32::System::SystemServices::{GetModuleHandleW, LRESULT, PWSTR, HANDLE},
     Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
     Windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetWindowRect,
-        PostQuitMessage, RegisterClassExW, TranslateMessage, CW_USEDEFAULT, HWND, LPARAM, MSG,
-        WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WNDCLASSEXW,
-        WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
+        RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW, CW_USEDEFAULT, HWND,
+        LPARAM, MSG, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WM_SIZE,
+        WNDCLASSEXW, WNDCLASS_STYLES, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA, WM_CREATE,
+        CREATESTRUCTW, WM_DESTROY,
     },
+    Windows::Win32::UI::DisplayDevices::RECT,
 };
 
 use widestring::WideCString;
@@ -36,6 +40,23 @@ fn debug_last_err() {
     unsafe { debug!("{:?}", GetLastError()) }
 }
 
+#[derive(Debug)]
+struct Win32Game {
+    running: bool,
+    bitmap_info: BITMAPINFO,
+    bitmap_handle: HBITMAP,
+    bitmap_mem: *mut core::ffi::c_void,
+    device_ctx: HDC,
+}
+
+fn win32_get_game(window: HWND) -> &'static mut Win32Game {
+    unsafe { 
+        let ptr = GetWindowLongW(window, GWLP_USERDATA) as *mut Win32Game;
+        debug_assert!(!ptr.is_null());
+        &mut *ptr
+    }
+}
+
 extern "system" fn window_event_handler(
     window: HWND,
     message: u32,
@@ -43,28 +64,115 @@ extern "system" fn window_event_handler(
     lparam: LPARAM,
 ) -> LRESULT {
     match message {
+        WM_CREATE=> {
+            unsafe {
+                let create_struct: &CREATESTRUCTW = std::mem::transmute(lparam);
+                SetWindowLongW(window, GWLP_USERDATA, create_struct.lpCreateParams as _);
+            }
+            LRESULT(0)
+        }
         WM_ACTIVATEAPP => {
             debug!("window activated");
 
             LRESULT(0)
         }
-        WM_CLOSE => {
-            unsafe {
-                PostQuitMessage(0);
+        WM_SIZE => {
+            debug!("resizing GDI buffer");
+
+            let game = win32_get_game(window);
+            if !game.bitmap_handle.is_null() {
+                unsafe {DeleteObject(game.bitmap_handle)};
             }
+
+            let mut rect = RECT::default();
+            unsafe {
+                GetClientRect(window, &mut rect);
+            }
+
+            let bmpinfo = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: rect.right - rect.left,
+                    biHeight: rect.bottom - rect.top,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB as u32,
+                    biSizeImage: 0,
+                    biClrImportant: 0,
+                    biClrUsed: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                },
+                bmiColors: [RGBQUAD::default()],
+            };
+
+            game.bitmap_info = bmpinfo;
+
+            let mut pixel_mem: *mut core::ffi::c_void = std::ptr::null_mut();
+
+            unsafe {
+                game.bitmap_handle = CreateDIBSection(
+                    game.device_ctx,
+                    &bmpinfo,
+                    DIB_RGB_COLORS,
+                    &mut pixel_mem,
+                    HANDLE::default(),
+                    0,
+                );
+                debug_assert!(!game.bitmap_handle.is_null());
+            }
+            game.bitmap_mem = pixel_mem;
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            let game = win32_get_game(window);
+            game.running = false;
+
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            let game = win32_get_game(window);
+            game.running = false;
 
             LRESULT(0)
         }
         WM_PAINT => {
+            let game=  win32_get_game(window);
+
+            unsafe {
+                let mut ptr = game.bitmap_mem as *mut u32;
+                let lim = game.bitmap_info.bmiHeader.biWidth * game.bitmap_info.bmiHeader.biHeight;
+                for _ in 1..lim {
+                    ptr = ptr.add(1);
+                    *(ptr) = 0x00ffffff;
+                }
+            }
+
             unsafe {
                 let mut paint = PAINTSTRUCT::default();
                 let hdc = BeginPaint(window, &mut paint);
-                //GetWindowRect(window, &mut rect);
                 let x = paint.rcPaint.left;
                 let y = paint.rcPaint.top;
                 let w = paint.rcPaint.right - x;
                 let h = paint.rcPaint.bottom - y;
-                PatBlt(hdc, x, y, w, h, BLACKNESS);
+                debug_assert!(PatBlt(hdc, x, y, w, h, BLACKNESS).as_bool());
+                let r = StretchDIBits(
+                    game.device_ctx,
+                    x,
+                    y,
+                    w,
+                    h,
+                    x,
+                    y,
+                    w,
+                    h,
+                    game.bitmap_mem,
+                    &game.bitmap_info,
+                    DIB_RGB_COLORS,
+                    SRCCOPY,
+                );
+                debug_assert!(r != 0);
+                debug!("blitted {} scanlines", r);
                 EndPaint(window, &mut paint);
             }
 
@@ -99,6 +207,14 @@ fn main() -> windows::Result<()> {
         let success = RegisterClassExW(&window_template);
         debug_assert!(success != 0);
 
+        let mut game = Win32Game {
+            running: true,
+            bitmap_info: BITMAPINFO::default(),
+            bitmap_handle: HBITMAP::default(),
+            bitmap_mem: std::ptr::null_mut(),
+            device_ctx: HDC::default(),
+        };
+
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             PWSTR::from_str("RMHClass"),
@@ -111,15 +227,20 @@ fn main() -> windows::Result<()> {
             None,
             None,
             h_instance,
-            std::ptr::null_mut(),
+            &mut game as *mut _ as _,
+            // std::ptr::null_mut(),
         );
 
         debug_assert!(hwnd.0 != 0);
 
+        game.device_ctx = GetDC(hwnd);
+
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, hwnd, 0, 0).as_bool() {
-            TranslateMessage(&mut msg);
-            DispatchMessageW(&mut msg);
+        while game.running {
+            if GetMessageW(&mut msg, hwnd, 0, 0).as_bool() {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
     }
 
