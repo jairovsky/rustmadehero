@@ -75,12 +75,12 @@ extern "system" fn window_event_handler(
                 let create_struct: &CREATESTRUCTW = std::mem::transmute(lparam);
                 SetWindowLongW(window, GWLP_USERDATA, create_struct.lpCreateParams as _);
             }
-            LRESULT(0)
+            LRESULT::default()
         }
         WM_ACTIVATEAPP => {
             debug!("window activated");
 
-            LRESULT(0)
+            LRESULT::default()
         }
         WM_SIZE => {
             debug!("resizing GDI buffer");
@@ -123,19 +123,19 @@ extern "system" fn window_event_handler(
                 );
                 debug_assert!(!game.bitmap_handle.is_null());
             }
-            LRESULT(0)
+            LRESULT::default()
         }
         WM_CLOSE => {
             let game = win32_get_game(window);
             game.running = false;
 
-            LRESULT(0)
+            LRESULT::default()
         }
         WM_DESTROY => {
             let game = win32_get_game(window);
             game.running = false;
 
-            LRESULT(0)
+            LRESULT::default()
         }
         WM_PAINT => {
             let game=  win32_get_game(window);
@@ -177,7 +177,7 @@ extern "system" fn window_event_handler(
                 EndPaint(window, &mut paint);
             }
 
-            LRESULT(0)
+            LRESULT::default()
         }
         _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
     }
