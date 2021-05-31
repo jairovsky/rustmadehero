@@ -95,7 +95,7 @@ extern "system" fn window_event_handler(
                 GetClientRect(window, &mut rect);
             }
 
-            let bmpinfo = BITMAPINFO {
+            game.bitmap_info = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
                     biWidth: rect.right - rect.left,
@@ -112,22 +112,17 @@ extern "system" fn window_event_handler(
                 bmiColors: [RGBQUAD::default()],
             };
 
-            game.bitmap_info = bmpinfo;
-
-            let mut pixel_mem: *mut core::ffi::c_void = std::ptr::null_mut();
-
             unsafe {
                 game.bitmap_handle = CreateDIBSection(
                     game.device_ctx,
-                    &bmpinfo,
+                    &game.bitmap_info,
                     DIB_RGB_COLORS,
-                    &mut pixel_mem,
+                    &mut game.bitmap_mem,
                     HANDLE::default(),
                     0,
                 );
                 debug_assert!(!game.bitmap_handle.is_null());
             }
-            game.bitmap_mem = pixel_mem;
             LRESULT(0)
         }
         WM_CLOSE => {
