@@ -57,6 +57,12 @@ fn win32_get_game(window: HWND) -> &'static mut Win32Game {
     }
 }
 
+macro_rules! u32_rgba {
+    ( $r:expr, $g: expr, $b: expr, $a: expr ) => { 
+        ($a << 24) + ($r << 16) + ($g << 8) + $b
+    }
+}
+
 extern "system" fn window_event_handler(
     window: HWND,
     message: u32,
@@ -143,8 +149,8 @@ extern "system" fn window_event_handler(
                 let mut ptr = game.bitmap_mem as *mut u32;
                 let n_pixels = game.bitmap_info.bmiHeader.biWidth * game.bitmap_info.bmiHeader.biHeight;
                 for _ in 1..n_pixels {
+                    *(ptr) = u32_rgba!(0x50, 0, 0, 0);
                     ptr = ptr.add(1);
-                    *(ptr) = 0x00ffffff;
                 }
             }
 
