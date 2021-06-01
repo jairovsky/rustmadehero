@@ -128,28 +128,36 @@ extern "system" fn window_event_handler(
         WM_PAINT => {
             let game=  win32_get_game(window);
 
-            for pixel in &mut game.bitmap_mem {
-                *pixel = u32_rgba!(200, 200, 0, 0);
+            for y in (0..game.bitmap_info.bmiHeader.biHeight) {
+                for x in 0..game.bitmap_info.bmiHeader.biWidth {
+                    let idx = (y * game.bitmap_info.bmiHeader.biWidth + x) as usize;
+                    game.bitmap_mem[idx]= u32_rgba!(0, (y as u32 & 0xff), (x as u32 & 0xff),  0);
+                }
             }
 
             unsafe {
                 let mut paint = PAINTSTRUCT::default();
                 let hdc = BeginPaint(window, &mut paint);
-                let x = paint.rcPaint.left;
-                let y = paint.rcPaint.top;
-                let w = paint.rcPaint.right - x;
-                let h = paint.rcPaint.bottom - y;
-                debug_assert!(PatBlt(hdc, x, y, w, h, BLACKNESS).as_bool());
+                debug_assert!(
+                    PatBlt(
+                        hdc, 
+                        0, 
+                        0, 
+                        game.bitmap_info.bmiHeader.biWidth,
+                        game.bitmap_info.bmiHeader.biHeight,
+                        BLACKNESS
+                    ).as_bool()
+                );
                 let r = StretchDIBits(
                     hdc,
-                    x,
-                    y,
-                    w,
-                    h,
-                    x,
-                    y,
-                    w,
-                    h,
+                    0,
+                    game.bitmap_info.bmiHeader.biHeight,
+                    game.bitmap_info.bmiHeader.biWidth,
+                    -game.bitmap_info.bmiHeader.biHeight,
+                    0,
+                    0,
+                    game.bitmap_info.bmiHeader.biWidth,
+                    game.bitmap_info.bmiHeader.biHeight,
                     &(game.bitmap_mem[0]) as *const u32 as *const std::ffi::c_void,
                     &game.bitmap_info,
                     DIB_RGB_COLORS,
