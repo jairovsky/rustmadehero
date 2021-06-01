@@ -5,7 +5,7 @@ use log::debug;
 use bindings::{
     Windows::Win32::Graphics::Gdi::{
         BeginPaint, CreateDIBSection, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS, HDC,
-        StretchDIBits, DeleteObject, GetDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, RGBQUAD,
+        StretchDIBits, DeleteObject, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, RGBQUAD,
             SRCCOPY,
     },
     Windows::Win32::System::Diagnostics::Debug::GetLastError,
@@ -13,10 +13,10 @@ use bindings::{
     Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
     Windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
-        RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW, CW_USEDEFAULT, HWND,
+        RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW, PeekMessageW, CW_USEDEFAULT, HWND,
         LPARAM, MSG, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WM_SIZE,
         WNDCLASSEXW, WNDCLASS_STYLES, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA, WM_CREATE,
-        CREATESTRUCTW, WM_DESTROY,
+        CREATESTRUCTW, WM_DESTROY, PM_REMOVE
     },
     Windows::Win32::UI::DisplayDevices::RECT,
 };
@@ -40,11 +40,18 @@ fn debug_last_err() {
     unsafe { debug!("{:?}", GetLastError()) }
 }
 
+macro_rules! u32_rgba {
+    ( $r:expr, $g: expr, $b: expr, $a: expr ) => { 
+        ($a << 24) + ($r << 16) + ($g << 8) + $b
+    }
+}
+
 #[derive(Debug)]
 struct Win32Game {
     running: bool,
     bitmap_info: BITMAPINFO,
     bitmap_mem: std::vec::Vec::<u32>,
+    window: HWND,
 }
 
 fn win32_get_game(window: HWND) -> &'static mut Win32Game {
@@ -55,9 +62,41 @@ fn win32_get_game(window: HWND) -> &'static mut Win32Game {
     }
 }
 
-macro_rules! u32_rgba {
-    ( $r:expr, $g: expr, $b: expr, $a: expr ) => { 
-        ($a << 24) + ($r << 16) + ($g << 8) + $b
+fn win32_render(game: &Win32Game) {
+    unsafe {
+        let hdc = GetDC(game.window);
+        let r = StretchDIBits(
+            hdc,
+            0,
+            game.bitmap_info.bmiHeader.biHeight,
+            game.bitmap_info.bmiHeader.biWidth,
+            -game.bitmap_info.bmiHeader.biHeight,
+            0,
+            0,
+            game.bitmap_info.bmiHeader.biWidth,
+            game.bitmap_info.bmiHeader.biHeight,
+            &(game.bitmap_mem[0]) as *const u32 as *const std::ffi::c_void,
+            &game.bitmap_info,
+            DIB_RGB_COLORS,
+            SRCCOPY,
+        );
+        debug_assert!(r > 0);
+        ReleaseDC(game.window, hdc);
+    }
+}
+
+fn win32_render_weird_gradient(game: &mut Win32Game, xoffset: i32, yoffset: i32) {
+
+    for y in (0..game.bitmap_info.bmiHeader.biHeight) {
+        for x in 0..game.bitmap_info.bmiHeader.biWidth {
+            let idx = (y * game.bitmap_info.bmiHeader.biWidth + x) as usize;
+            game.bitmap_mem[idx]= u32_rgba!(
+                0,
+                ((y - yoffset) as u32 & 0xff),
+                ((x - xoffset) as u32 & 0xff),
+                0
+            );
+        }
     }
 }
 
@@ -128,42 +167,11 @@ extern "system" fn window_event_handler(
         WM_PAINT => {
             let game=  win32_get_game(window);
 
-            for y in (0..game.bitmap_info.bmiHeader.biHeight) {
-                for x in 0..game.bitmap_info.bmiHeader.biWidth {
-                    let idx = (y * game.bitmap_info.bmiHeader.biWidth + x) as usize;
-                    game.bitmap_mem[idx]= u32_rgba!(0, (y as u32 & 0xff), (x as u32 & 0xff),  0);
-                }
-            }
-
+            let mut paint = PAINTSTRUCT::default();
             unsafe {
-                let mut paint = PAINTSTRUCT::default();
                 let hdc = BeginPaint(window, &mut paint);
-                debug_assert!(
-                    PatBlt(
-                        hdc, 
-                        0, 
-                        0, 
-                        game.bitmap_info.bmiHeader.biWidth,
-                        game.bitmap_info.bmiHeader.biHeight,
-                        BLACKNESS
-                    ).as_bool()
-                );
-                let r = StretchDIBits(
-                    hdc,
-                    0,
-                    game.bitmap_info.bmiHeader.biHeight,
-                    game.bitmap_info.bmiHeader.biWidth,
-                    -game.bitmap_info.bmiHeader.biHeight,
-                    0,
-                    0,
-                    game.bitmap_info.bmiHeader.biWidth,
-                    game.bitmap_info.bmiHeader.biHeight,
-                    &(game.bitmap_mem[0]) as *const u32 as *const std::ffi::c_void,
-                    &game.bitmap_info,
-                    DIB_RGB_COLORS,
-                    SRCCOPY,
-                );
-                debug_assert!(r != 0);
+                PatBlt(hdc, 0, 0, game.bitmap_info.bmiHeader.biWidth,game.bitmap_info.bmiHeader.biHeight, BLACKNESS);
+                win32_render(game);
                 EndPaint(window, &mut paint);
             }
 
@@ -202,6 +210,7 @@ fn main() -> windows::Result<()> {
             running: true,
             bitmap_info: BITMAPINFO::default(),
             bitmap_mem: std::vec::Vec::new(),
+            window: HWND::default(),
         };
 
         let hwnd = CreateWindowExW(
@@ -219,14 +228,22 @@ fn main() -> windows::Result<()> {
             &mut game as *mut _ as _,
         );
 
+        game.window = hwnd;
+
         debug_assert!(hwnd.0 != 0);
 
         let mut msg = MSG::default();
+        let mut x_offset = 10;
+        let mut y_offset = 10;
         while game.running {
-            if GetMessageW(&mut msg, hwnd, 0, 0).as_bool() {
+            while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+            x_offset += 1;
+            y_offset += 1;
+            win32_render_weird_gradient(&mut game, x_offset, y_offset);
+            win32_render(&game);
         }
     }
 
