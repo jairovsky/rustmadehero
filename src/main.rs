@@ -9,8 +9,9 @@ use bindings::{
             SRCCOPY,
     },
     Windows::Win32::System::Diagnostics::Debug::GetLastError,
-    Windows::Win32::System::SystemServices::{GetModuleHandleW, LRESULT, PWSTR, HANDLE},
+    Windows::Win32::System::SystemServices::{GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE},
     Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
+    Windows::Win32::UI::XInput::*,
     Windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
         RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW, PeekMessageW, CW_USEDEFAULT, HWND,
@@ -46,14 +47,27 @@ macro_rules! u32_rgba {
     }
 }
 
-#[derive(Debug)]
+type XInputGetStateFn = extern "C" fn(u32, *mut XINPUT_STATE) -> u32;
+struct XInput {
+   get_state: XInputGetStateFn
+}
+
+struct Pad {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+}
+
 struct Win32Game {
     running: bool,
     bitmap_info: BITMAPINFO,
     bitmap_mem: std::vec::Vec::<u32>,
     window: HWND,
     window_width: u32,
-    window_height: u32
+    window_height: u32,
+    xinput: Option<XInput>,
+    pad1: Pad,
 }
 
 fn win32_get_game(window: HWND) -> &'static mut Win32Game {
@@ -61,6 +75,41 @@ fn win32_get_game(window: HWND) -> &'static mut Win32Game {
         let ptr = GetWindowLongW(window, GWLP_USERDATA) as *mut Win32Game;
         debug_assert!(!ptr.is_null());
         &mut *ptr
+    }
+}
+
+fn win32_load_xinput(game: &mut Win32Game) {
+
+    let versions = ["xinput.dll", "xinput1_4.dll", "xinput1_3.dll"];
+
+    for v in &versions {
+
+        let dll = unsafe {LoadLibraryW(*v)};
+        if !dll.is_null() {
+
+            debug!("loaded xinput {}", *v);
+            unsafe {
+                if let Some(addr) = GetProcAddress(dll, "XInputGetState") {
+                    game.xinput = Some(XInput {
+                        get_state: std::mem::transmute_copy(&addr)
+                    });
+                }
+            }
+
+            return
+        }
+    }
+}
+
+fn win32_get_pad_input(game: &mut Win32Game) {
+    if let Some(xinput) = &mut game.xinput {
+        let mut state = XINPUT_STATE::default();
+        (xinput.get_state)(0, &mut state);
+
+        game.pad1.up = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP as u16) != 0;
+        game.pad1.down = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN as u16) != 0;
+        game.pad1.left = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT as u16) != 0;
+        game.pad1.right = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT as u16) != 0;
     }
 }
 
@@ -218,6 +267,13 @@ fn main() -> windows::Result<()> {
             window: HWND::default(),
             window_width: 1280,
             window_height: 720,
+            xinput: None,
+            pad1: Pad{
+                up: false,
+                down: false,
+                left: false,
+                right: false,
+            }
         };
 
         let hwnd = CreateWindowExW(
@@ -235,7 +291,6 @@ fn main() -> windows::Result<()> {
             &mut game as *mut _ as _,
         );
 
-
         debug_assert!(hwnd.0 != 0);
 
         game.window = hwnd;
@@ -245,13 +300,30 @@ fn main() -> windows::Result<()> {
         let mut msg = MSG::default();
         let mut x_offset = 10;
         let mut y_offset = 10;
+
+        win32_load_xinput(&mut game);
+
         while game.running {
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
-            x_offset += 1;
-            y_offset += 1;
+
+            win32_get_pad_input(&mut game);
+
+            if game.pad1.up {
+                y_offset -= 5;
+            }
+            if game.pad1.down {
+                y_offset += 5;
+            }
+            if game.pad1.left {
+                x_offset -= 5;
+            }
+            if game.pad1.right {
+                x_offset += 5;
+            }
+
             win32_render_weird_gradient(&mut game, x_offset, y_offset);
             win32_render(&game);
         }
