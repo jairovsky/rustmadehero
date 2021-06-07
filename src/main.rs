@@ -1,26 +1,29 @@
 #![windows_subsystem = "windows"]
 
+use std::ops::Add;
+
 use log::debug;
 
-use bindings::{
-    Windows::Win32::Graphics::Gdi::{
+use bindings::{Windows::Win32::Graphics::Gdi::{
         BeginPaint, CreateDIBSection, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS, HDC,
-        StretchDIBits, DeleteObject, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, RGBQUAD,
-            SRCCOPY,
+        StretchDIBits, DeleteObject, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        HBITMAP, RGBQUAD, SRCCOPY,
+    }, Windows::Win32::Media::Audio::DirectMusic::{
+        IDirectSound, IDirectSoundBuffer, DSBCAPS_PRIMARYBUFFER, DSBCAPS_GLOBALFOCUS, DSBLOCK_ENTIREBUFFER, DSBLOCK_FROMWRITECURSOR,
+        DSBUFFERDESC, DirectSoundCreate, DSBPLAY_LOOPING, DSBSTATUS_LOOPING
     },
-    Windows::Win32::System::Diagnostics::Debug::GetLastError,
-    Windows::Win32::System::SystemServices::{GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE},
-    Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON},
-    Windows::Win32::UI::XInput::*,
-    Windows::Win32::UI::WindowsAndMessaging::{
+    Windows::Win32::Media::Multimedia::{ WAVEFORMATEX, WAVE_FORMAT_PCM }, Windows::Win32::System::Diagnostics::Debug::GetLastError,
+    Windows::Win32::{Media::Audio::DirectMusic::DSSCL_PRIORITY, System::SystemServices::{
+        GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE
+    }}, Windows::Win32::UI::DisplayDevices::RECT, Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON}, Windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
         RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW, PeekMessageW, CW_USEDEFAULT, HWND,
         LPARAM, MSG, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WM_SIZE,
         WNDCLASSEXW, WNDCLASS_STYLES, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA, WM_CREATE,
-        CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_HREDRAW, CS_VREDRAW
-    },
-    Windows::Win32::UI::DisplayDevices::RECT,
-};
+        CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_HREDRAW, CS_VREDRAW, WM_KEYDOWN, WM_KEYUP
+    }, Windows::Win32::UI::XInput::*};
+
+use windows::{HRESULT, Guid, IUnknown};
 
 use widestring::WideCString;
 
@@ -37,6 +40,24 @@ impl PWSTRCreator for PWSTR {
     }
 }
 
+trait WaveFormatExCreator {
+    fn new_pcm(n_channels: u16, n_bits_p_sample: u16, n_samples_p_sec: u16) -> WAVEFORMATEX;
+}
+impl WaveFormatExCreator for WAVEFORMATEX {
+    fn new_pcm(n_channels: u16, n_bits_p_sample: u16, n_samples_p_sec: u16) -> Self {
+        let block_align = (n_channels * n_bits_p_sample) / 8;
+        Self {
+            wFormatTag: WAVE_FORMAT_PCM as u16,
+            nChannels : n_channels,
+            nSamplesPerSec : n_samples_p_sec as u32,
+            wBitsPerSample : n_bits_p_sample,
+            nBlockAlign : block_align,
+            nAvgBytesPerSec : n_samples_p_sec as u32 * block_align as u32,
+            cbSize: 0
+        }
+    }
+}
+
 fn debug_last_err() {
     unsafe { debug!("{:?}", GetLastError()) }
 }
@@ -47,9 +68,31 @@ macro_rules! u32_rgba {
     }
 }
 
+type DirectSoundCreateFn = extern "C" fn(
+    pcguiddevice: *const Guid, 
+    ppds: *mut Option<IDirectSound>, 
+    punkouter: *const std::ffi::c_void,
+) -> HRESULT;
+
 type XInputGetStateFn = extern "C" fn(u32, *mut XINPUT_STATE) -> u32;
 struct XInput {
    get_state: XInputGetStateFn
+}
+
+struct SoundParams {
+    bits_per_sample: u16,
+    n_channels: u16,
+    n_samples_per_sec: u16,
+    buf_size_seconds: u16
+}
+
+impl SoundParams {
+    fn buf_size_bytes(&self) -> u32 {
+        (self.n_channels as u32 * 
+        self.bits_per_sample as u32 *
+        self.n_samples_per_sec as u32 *
+        self.buf_size_seconds as u32) / 8
+    }
 }
 
 struct Pad {
@@ -68,6 +111,10 @@ struct Win32Game {
     window_height: u32,
     xinput: Option<XInput>,
     pad1: Pad,
+    dsound_buffer: Option<IDirectSoundBuffer>,
+    dsound: Option<IDirectSound>, //necessary to hold this ref, otherwise the buffer gets deallocated
+    sound_params: SoundParams,
+    sound_sample_idx: u32,
 }
 
 fn win32_get_game(window: HWND) -> &'static mut Win32Game {
@@ -97,6 +144,94 @@ fn win32_load_xinput(game: &mut Win32Game) {
             }
 
             return
+        }
+    }
+}
+
+fn win32_init_dsound(game: &mut Win32Game) {
+
+    let dll = unsafe {LoadLibraryW("dsound.dll")};
+    if !dll.is_null() {
+        debug!("loaded dsound");
+        unsafe {
+            if let Some(addr) = GetProcAddress(dll, "DirectSoundCreate") {
+                let direct_sound_create: DirectSoundCreateFn = std::mem::transmute_copy(&addr);
+                debug_assert!(
+                    direct_sound_create(std::ptr::null_mut(), &mut game.dsound, std::ptr::null_mut()).is_ok()
+                );
+                debug_assert!(
+                    game.dsound.is_some()
+                );
+
+                if let Some(dsound) = &game.dsound {
+
+                    debug_assert!(
+                        dsound.SetCooperativeLevel(game.window, DSSCL_PRIORITY).is_ok()
+                    );
+
+                    let mut wave_format = WAVEFORMATEX::new_pcm(
+                        game.sound_params.n_channels,
+                        game.sound_params.bits_per_sample,
+                        game.sound_params.n_samples_per_sec,
+                    );
+
+                    let buffer_desc = &mut DSBUFFERDESC {
+                        dwSize: std::mem::size_of::<DSBUFFERDESC>() as u32,
+                        dwFlags: DSBCAPS_PRIMARYBUFFER,
+                        ..Default::default()
+                    };
+                    let mut dsound_buffer: Option<IDirectSoundBuffer> = None;
+                    debug_assert!(
+                        dsound.CreateSoundBuffer(buffer_desc, &mut dsound_buffer, None).is_ok()
+                    );
+
+                    if let Some(dsound_buffer) = dsound_buffer {
+                        debug_assert!(
+                            dsound_buffer.SetFormat(&mut wave_format).is_ok()
+                        );
+                    }
+
+                    let sec_buffer_desc = &mut DSBUFFERDESC {
+                        dwSize: std::mem::size_of::<DSBUFFERDESC>() as u32,
+                        dwBufferBytes: game.sound_params.buf_size_bytes(),
+                        lpwfxFormat: &mut wave_format,
+                        dwFlags: DSBCAPS_GLOBALFOCUS,
+                        ..Default::default()
+                    };
+                    debug_assert!(
+                        dsound.CreateSoundBuffer(sec_buffer_desc, &mut game.dsound_buffer, None).is_ok()
+                    );
+                    
+                    if let Some(buf) = &game.dsound_buffer {
+
+                        let mut part1ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+                        let mut part1size = 0u32;
+
+                        debug_assert!(buf.Lock(
+                            0,
+                            0,
+                            &mut part1ptr,
+                            &mut part1size,
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                            DSBLOCK_ENTIREBUFFER | DSBLOCK_FROMWRITECURSOR
+                        ).is_ok());
+
+                        let part1ptrwalk = part1ptr as *mut u32;
+
+                        for i in 0..part1size {
+                            *part1ptrwalk = 0;
+                            part1ptrwalk.add(1);
+                        }
+
+                        debug_assert!(
+                            buf.Unlock(part1ptr, part1size, std::ptr::null_mut(), 0).is_ok()
+                        );
+
+                        buf.Play(0, 0, DSBPLAY_LOOPING);
+                    }
+                }
+            }
         }
     }
 }
@@ -141,12 +276,11 @@ fn win32_render_weird_gradient(game: &mut Win32Game, xoffset: i32, yoffset: i32)
     for y in (0..game.bitmap_info.bmiHeader.biHeight) {
         for x in 0..game.bitmap_info.bmiHeader.biWidth {
             let idx = (y * game.bitmap_info.bmiHeader.biWidth + x) as usize;
-            game.bitmap_mem[idx]= u32_rgba!(
-                0,
-                ((y - yoffset) as u32 & 0xff),
-                ((x - xoffset) as u32 & 0xff),
-                0
-            );
+            if x % 100 == 0 || y % 100 == 0 {
+                game.bitmap_mem[idx]= u32_rgba!( 0, 255, 0, 0);
+            } else {
+                game.bitmap_mem[idx]= u32_rgba!( 0, 0, 0, 0);
+            }
         }
     }
 }
@@ -273,7 +407,16 @@ fn main() -> windows::Result<()> {
                 down: false,
                 left: false,
                 right: false,
-            }
+            },
+            dsound: None,
+            dsound_buffer: None,
+            sound_params: SoundParams {
+                bits_per_sample: 16,
+                n_channels: 2,
+                n_samples_per_sec: 48000,
+                buf_size_seconds: 1,
+            },
+            sound_sample_idx: 0,
         };
 
         let hwnd = CreateWindowExW(
@@ -303,6 +446,8 @@ fn main() -> windows::Result<()> {
 
         win32_load_xinput(&mut game);
 
+        win32_init_dsound(&mut game);
+
         while game.running {
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
                 TranslateMessage(&msg);
@@ -326,7 +471,11 @@ fn main() -> windows::Result<()> {
 
             win32_render_weird_gradient(&mut game, x_offset, y_offset);
             win32_render(&game);
+
+            if let Some(buf) = &game.dsound_buffer {
+            }
         }
+
     }
 
     Ok(())
