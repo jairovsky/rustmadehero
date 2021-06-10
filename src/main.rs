@@ -1,7 +1,5 @@
 #![windows_subsystem = "windows"]
 
-use std::ops::Add;
-
 use log::debug;
 
 use bindings::{Windows::Win32::Graphics::Gdi::{
@@ -93,6 +91,10 @@ impl SoundParams {
         self.n_samples_per_sec as u32 *
         self.buf_size_seconds as u32) / 8
     }
+
+    fn bytes_per_sample(&self) -> u32 {
+        (self.bits_per_sample * self.n_channels / 8) as u32
+    }
 }
 
 struct Pad {
@@ -115,6 +117,7 @@ struct Win32Game {
     dsound: Option<IDirectSound>, //necessary to hold this ref, otherwise the buffer gets deallocated
     sound_params: SoundParams,
     sound_sample_idx: u32,
+    sound_playing: bool,
 }
 
 fn win32_get_game(window: HWND) -> &'static mut Win32Game {
@@ -217,18 +220,15 @@ fn win32_init_dsound(game: &mut Win32Game) {
                             DSBLOCK_ENTIREBUFFER | DSBLOCK_FROMWRITECURSOR
                         ).is_ok());
 
-                        let part1ptrwalk = part1ptr as *mut u32;
-
-                        for i in 0..part1size {
-                            *part1ptrwalk = 0;
-                            part1ptrwalk.add(1);
+                        let mut part1ptr_iter = part1ptr as *mut u32;
+                        for i in (0..part1size).step_by(std::mem::size_of::<u32>()) {
+                            *part1ptr_iter = 0;
+                            part1ptr_iter = part1ptr_iter.add(1);
                         }
 
                         debug_assert!(
                             buf.Unlock(part1ptr, part1size, std::ptr::null_mut(), 0).is_ok()
                         );
-
-                        buf.Play(0, 0, DSBPLAY_LOOPING);
                     }
                 }
             }
@@ -267,6 +267,7 @@ fn win32_render(game: &Win32Game) {
             SRCCOPY,
         );
         debug_assert!(r > 0);
+        debug!("stretchdibits: blitted {} lines", r);
         ReleaseDC(game.window, hdc);
     }
 }
@@ -417,6 +418,7 @@ fn main() -> windows::Result<()> {
                 buf_size_seconds: 1,
             },
             sound_sample_idx: 0,
+            sound_playing: false,
         };
 
         let hwnd = CreateWindowExW(
@@ -440,13 +442,19 @@ fn main() -> windows::Result<()> {
 
         win32_resize_bitmap_buffer(&mut game, 1280, 720);
 
-        let mut msg = MSG::default();
         let mut x_offset = 10;
         let mut y_offset = 10;
+        let mut square_wave_sign = 1;
+        let mut square_wave_sample_counter = 0;
 
         win32_load_xinput(&mut game);
 
         win32_init_dsound(&mut game);
+
+        let mut frame_timer = std::time::Instant::now();
+        let mut frame_timer_diff = 0u128;
+
+        let mut msg = MSG::default();
 
         while game.running {
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
@@ -472,10 +480,94 @@ fn main() -> windows::Result<()> {
             win32_render_weird_gradient(&mut game, x_offset, y_offset);
             win32_render(&game);
 
+            frame_timer_diff = frame_timer.elapsed().as_millis();
+            debug!("loop time {}ms", frame_timer_diff);
+            frame_timer = std::time::Instant::now();
+
             if let Some(buf) = &game.dsound_buffer {
+                
+                let mut play_cur = 0u32;
+                let mut write_cur = 0u32;
+                buf.GetCurrentPosition(&mut play_cur, &mut write_cur);
+
+                let mut part1ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+                let mut part2ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+                let mut part1size = 0u32;
+                let mut part2size = 0u32;
+
+                let running_bytes = game.sound_sample_idx * game.sound_params.bytes_per_sample();
+
+                debug!(
+                    "diff between write_cur and own byte tracker {} {}",
+                    write_cur,
+                    running_bytes
+                );
+
+                let mut byte_to_lock = game.sound_sample_idx * game.sound_params.bytes_per_sample();
+                let mut bytes_to_write = game.sound_params.buf_size_bytes()
+                                        / (game.sound_params.buf_size_seconds as u32 * 1000)
+                                        * frame_timer_diff as u32 ; 
+
+                // preventing overflow if the game loop hangs for whatever reason,
+                // e.g. if some Windows event makes PeekMessage wait for too long.
+                if bytes_to_write > game.sound_params.buf_size_bytes() {
+                    bytes_to_write = game.sound_params.buf_size_bytes();
+                }
+
+                debug_assert!(
+                    buf.Lock(
+                        byte_to_lock,
+                        bytes_to_write,
+                        &mut part1ptr,
+                        &mut part1size,
+                        &mut part2ptr,
+                        &mut part2size,
+                        0
+                    ).is_ok()
+                );
+
+                let mut part1ptrwalk = part1ptr as *mut i16;
+                for sample_idx in (0..part1size).step_by(game.sound_params.bytes_per_sample() as usize) {
+                    *part1ptrwalk = square_wave_sign * 2000;
+                    part1ptrwalk=part1ptrwalk.add(1);
+                    *part1ptrwalk = square_wave_sign * 2000;
+                    part1ptrwalk=part1ptrwalk.add(1);
+                    square_wave_sample_counter += 1;
+                    game.sound_sample_idx += 1;
+                    if square_wave_sample_counter == 30 {
+                        square_wave_sample_counter = 0;
+                        square_wave_sign *= -1;
+                    }
+                    game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
+                }
+
+                let mut part2ptrwalk = part2ptr as *mut i16;
+                for sample_idx in (0..part2size).step_by(game.sound_params.bytes_per_sample() as usize) {
+                    *part2ptrwalk = square_wave_sign * 2000;
+                    part2ptrwalk=part2ptrwalk.add(1);
+                    *part2ptrwalk = square_wave_sign * 2000;
+                    part2ptrwalk=part2ptrwalk.add(1);
+                    square_wave_sample_counter += 1;
+                    game.sound_sample_idx += 1;
+                    if square_wave_sample_counter == 30 {
+                        square_wave_sample_counter = 0;
+                        square_wave_sign *= -1;
+                    }
+                    game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
+                }
+
+                debug_assert!(
+                    buf.Unlock(part1ptr, part1size, part2ptr, part2size).is_ok()
+                );
+
+                if !game.sound_playing {
+                    debug_assert!(
+                        buf.Play(0, 0, DSBPLAY_LOOPING).is_ok()
+                    );
+                    game.sound_playing = true;
+                }
             }
         }
-
     }
 
     Ok(())
