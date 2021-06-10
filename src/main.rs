@@ -277,7 +277,7 @@ fn win32_render_weird_gradient(game: &mut Win32Game, xoffset: i32, yoffset: i32)
     for y in (0..game.bitmap_info.bmiHeader.biHeight) {
         for x in 0..game.bitmap_info.bmiHeader.biWidth {
             let idx = (y * game.bitmap_info.bmiHeader.biWidth + x) as usize;
-            if x % 100 == 0 || y % 100 == 0 {
+            if (x-xoffset) % 100 == 0 || (y-yoffset) % 100 == 0 {
                 game.bitmap_mem[idx]= u32_rgba!( 0, 255, 0, 0);
             } else {
                 game.bitmap_mem[idx]= u32_rgba!( 0, 0, 0, 0);
