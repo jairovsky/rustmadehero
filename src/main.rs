@@ -15,7 +15,7 @@ use bindings::{Windows::Win32::Graphics::Gdi::{
         GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE
     }}, Windows::Win32::UI::DisplayDevices::RECT, Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON}, Windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
-        RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW, PeekMessageW, CW_USEDEFAULT, HWND,
+        RegisterClassExW, TranslateMessage, SetWindowLongPtrW, GetWindowLongPtrW, PeekMessageW, CW_USEDEFAULT, HWND,
         LPARAM, MSG, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WM_SIZE,
         WNDCLASSEXW, WNDCLASS_STYLES, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA, WM_CREATE,
         CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_HREDRAW, CS_VREDRAW, WM_KEYDOWN, WM_KEYUP
@@ -122,7 +122,7 @@ struct Win32Game {
 
 fn win32_get_game(window: HWND) -> &'static mut Win32Game {
     unsafe { 
-        let ptr = GetWindowLongW(window, GWLP_USERDATA) as *mut Win32Game;
+        let ptr = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut Win32Game;
         debug_assert!(!ptr.is_null());
         &mut *ptr
     }
@@ -320,7 +320,7 @@ extern "system" fn window_event_handler(
         WM_CREATE=> {
             unsafe {
                 let create_struct: &CREATESTRUCTW = std::mem::transmute(lparam);
-                SetWindowLongW(window, GWLP_USERDATA, create_struct.lpCreateParams as _);
+                SetWindowLongPtrW(window, GWLP_USERDATA, create_struct.lpCreateParams as _);
             }
             LRESULT::default()
         }

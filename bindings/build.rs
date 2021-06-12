@@ -14,7 +14,7 @@ fn main() {
         Windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
             GetWindowRect, PostQuitMessage, RegisterClassExW, TranslateMessage, SetWindowLongW, GetWindowLongW,
-            PeekMessageW,
+            SetWindowLongPtrW, GetWindowLongPtrW, PeekMessageW,
             CW_USEDEFAULT, HWND, LPARAM, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT,
             WM_SIZE, WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA,
             WM_CREATE, CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_VREDRAW, CS_HREDRAW, WM_KEYDOWN, WM_KEYUP
