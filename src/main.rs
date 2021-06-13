@@ -446,6 +446,7 @@ fn main() -> windows::Result<()> {
         let mut y_offset = 10;
         let mut square_wave_sign = 1;
         let mut square_wave_sample_counter = 0;
+        let mut square_wave_len = 30;
 
         win32_load_xinput(&mut game);
 
@@ -465,10 +466,12 @@ fn main() -> windows::Result<()> {
             win32_get_pad_input(&mut game);
 
             if game.pad1.up {
-                y_offset -= 5;
+                // y_offset -= 5;
+                square_wave_len += 1;
             }
             if game.pad1.down {
-                y_offset += 5;
+                // y_offset += 5;
+                square_wave_len -= 1;
             }
             if game.pad1.left {
                 x_offset -= 5;
@@ -498,15 +501,23 @@ fn main() -> windows::Result<()> {
                 let running_bytes = game.sound_sample_idx * game.sound_params.bytes_per_sample();
 
                 debug!(
-                    "diff between write_cur and own byte tracker {} {}",
+                    "diff between write_cur and own byte tracker {} {} {}",
                     write_cur,
-                    running_bytes
+                    running_bytes,
+                    running_bytes as i32 - write_cur as i32 ,
                 );
 
                 let mut byte_to_lock = game.sound_sample_idx * game.sound_params.bytes_per_sample();
                 let mut bytes_to_write = game.sound_params.buf_size_bytes()
                                         / (game.sound_params.buf_size_seconds as u32 * 1000)
                                         * frame_timer_diff as u32 ; 
+
+                // in case we suffer some latency, increase the amount of bytes to write
+                // to catch up with dsound's write cursor
+                let will_wrap = byte_to_lock + bytes_to_write > game.sound_params.buf_size_bytes();
+                if !will_wrap && byte_to_lock < write_cur {
+                    bytes_to_write += (write_cur - byte_to_lock) * 2;
+                }
 
                 // preventing overflow if the game loop hangs for whatever reason,
                 // e.g. if some Windows event makes PeekMessage wait for too long.
@@ -534,7 +545,7 @@ fn main() -> windows::Result<()> {
                     part1ptrwalk=part1ptrwalk.add(1);
                     square_wave_sample_counter += 1;
                     game.sound_sample_idx += 1;
-                    if square_wave_sample_counter == 30 {
+                    if square_wave_sample_counter >= square_wave_len {
                         square_wave_sample_counter = 0;
                         square_wave_sign *= -1;
                     }
@@ -549,7 +560,7 @@ fn main() -> windows::Result<()> {
                     part2ptrwalk=part2ptrwalk.add(1);
                     square_wave_sample_counter += 1;
                     game.sound_sample_idx += 1;
-                    if square_wave_sample_counter == 30 {
+                    if square_wave_sample_counter >= square_wave_len {
                         square_wave_sample_counter = 0;
                         square_wave_sign *= -1;
                     }
