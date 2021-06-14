@@ -18,7 +18,7 @@ use bindings::{Windows::Win32::Graphics::Gdi::{
         RegisterClassExW, TranslateMessage, SetWindowLongPtrW, GetWindowLongPtrW, PeekMessageW, CW_USEDEFAULT, HWND,
         LPARAM, MSG, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WM_SIZE,
         WNDCLASSEXW, WNDCLASS_STYLES, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA, WM_CREATE,
-        CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_HREDRAW, CS_VREDRAW, WM_KEYDOWN, WM_KEYUP
+        CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_HREDRAW, CS_VREDRAW, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
     }, Windows::Win32::UI::XInput::*};
 
 use windows::{HRESULT, Guid, IUnknown};
@@ -102,6 +102,7 @@ struct Pad {
     down: bool,
     left: bool,
     right: bool,
+    packet_num: u32,
 }
 
 struct Win32Game {
@@ -241,10 +242,53 @@ fn win32_get_pad_input(game: &mut Win32Game) {
         let mut state = XINPUT_STATE::default();
         (xinput.get_state)(0, &mut state);
 
-        game.pad1.up = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP as u16) != 0;
-        game.pad1.down = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN as u16) != 0;
-        game.pad1.left = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT as u16) != 0;
-        game.pad1.right = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT as u16) != 0;
+        if game.pad1.packet_num != state.dwPacketNumber {
+            game.pad1.packet_num = state.dwPacketNumber;
+
+            game.pad1.up = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP as u16) != 0;
+            game.pad1.down = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN as u16) != 0;
+            game.pad1.left = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT as u16) != 0;
+            game.pad1.right = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT as u16) != 0;
+        }
+    }
+}
+
+fn win32_get_kbd_input(game: &mut Win32Game, msg: &MSG) -> bool {
+
+    let is_down = msg.lParam.0 & (1<<31) != 0;
+    let was_down = msg.lParam.0 & (1<<30) == 0;
+    let is_repeat = msg.lParam.0 & (1<<29) != 0;
+
+    if  is_repeat {
+        return false
+    }
+
+    match msg.message {
+        WM_KEYDOWN => {
+
+            match msg.wParam.0 as u32 {
+                0x57 => { game.pad1.up = true; }
+                0x53 => { game.pad1.down = true; }
+                0x41 => { game.pad1.left = true; }
+                0x44 => { game.pad1.right = true; }
+                _ => {}
+            }
+            true
+        }
+
+        WM_KEYUP => {
+
+            match msg.wParam.0 as u32 {
+                0x57 => { game.pad1.up = false; }
+                0x53 => { game.pad1.down = false; }
+                0x41 => { game.pad1.left = false; }
+                0x44 => { game.pad1.right = false; }
+                _ => {}
+            }
+            true
+        }
+
+        _ => false
     }
 }
 
@@ -286,13 +330,13 @@ fn win32_render_weird_gradient(game: &mut Win32Game, xoffset: i32, yoffset: i32)
     }
 }
 
-fn win32_resize_bitmap_buffer(game: &mut Win32Game, width: u32, height: u32) {
+fn win32_resize_bitmap_buffer(game: &mut Win32Game) {
 
     game.bitmap_info = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width as i32,
-            biHeight: height as i32,
+            biWidth: game.window_width as i32,
+            biHeight: game.window_height as i32,
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB as u32,
@@ -400,14 +444,15 @@ fn main() -> windows::Result<()> {
             bitmap_info: BITMAPINFO::default(),
             bitmap_mem: std::vec::Vec::new(),
             window: HWND::default(),
-            window_width: 1280,
-            window_height: 720,
+            window_width: 720,
+            window_height: 480,
             xinput: None,
             pad1: Pad{
                 up: false,
                 down: false,
                 left: false,
                 right: false,
+                packet_num: 0,
             },
             dsound: None,
             dsound_buffer: None,
@@ -440,7 +485,7 @@ fn main() -> windows::Result<()> {
 
         game.window = hwnd;
 
-        win32_resize_bitmap_buffer(&mut game, 1280, 720);
+        win32_resize_bitmap_buffer(&mut game);
 
         let mut x_offset = 10;
         let mut y_offset = 10;
@@ -457,13 +502,21 @@ fn main() -> windows::Result<()> {
 
         let mut msg = MSG::default();
 
+        let kbd_events = [WM_SYSKEYDOWN, WM_SYSKEYUP, WM_KEYUP, WM_KEYDOWN];
+
         while game.running {
+            let mut got_kbd_input = false;
             while PeekMessageW(&mut msg, hwnd, 0, 0, PM_REMOVE).as_bool() {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+                got_kbd_input = win32_get_kbd_input(&mut game, &msg);
+                if !got_kbd_input {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
             }
 
-            win32_get_pad_input(&mut game);
+            if !got_kbd_input {
+                win32_get_pad_input(&mut game);
+            }
 
             if game.pad1.up {
                 // y_offset -= 5;
