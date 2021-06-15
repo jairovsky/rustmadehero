@@ -286,13 +286,13 @@ fn win32_render_weird_gradient(game: &mut Win32Game, xoffset: i32, yoffset: i32)
     }
 }
 
-fn win32_resize_bitmap_buffer(game: &mut Win32Game, width: u32, height: u32) {
+fn win32_resize_bitmap_buffer(game: &mut Win32Game) {
 
     game.bitmap_info = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: width as i32,
-            biHeight: height as i32,
+            biWidth: game.window_width as i32,
+            biHeight: game.window_height as i32,
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB as u32,
@@ -400,8 +400,8 @@ fn main() -> windows::Result<()> {
             bitmap_info: BITMAPINFO::default(),
             bitmap_mem: std::vec::Vec::new(),
             window: HWND::default(),
-            window_width: 1280,
-            window_height: 720,
+            window_width: 720,
+            window_height: 480,
             xinput: None,
             pad1: Pad{
                 up: false,
@@ -440,7 +440,7 @@ fn main() -> windows::Result<()> {
 
         game.window = hwnd;
 
-        win32_resize_bitmap_buffer(&mut game, 1280, 720);
+        win32_resize_bitmap_buffer(&mut game);
 
         let mut x_offset = 10;
         let mut y_offset = 10;
