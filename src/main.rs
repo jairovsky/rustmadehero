@@ -519,8 +519,6 @@ fn main() -> windows::Result<()> {
                                         / (game.sound_params.buf_size_seconds as u32 * 1000)
                                         * frame_timer_diff as u32 ; 
 
-                // in case we suffer some latency, increase the amount of bytes to write
-                // to catch up with dsound's write cursor
                 let tracker_dist = circular_distance(byte_to_lock, write_cur, game.sound_params.buf_size_bytes());
 
                 debug!(
@@ -530,6 +528,8 @@ fn main() -> windows::Result<()> {
                     tracker_dist
                 );
 
+                // in case we suffer some latency, increase the amount of bytes to write
+                // to catch up with dsound's write cursor
                 if tracker_dist < bytes_to_write as i32 {
                     bytes_to_write += tracker_dist.abs() as u32 * 2;
                 }
