@@ -66,6 +66,22 @@ macro_rules! u32_rgba {
     }
 }
 
+fn circular_distance(a: u32, b: u32, circle_size: u32) -> i32 {
+
+    let p80 = circle_size / 100 * 75;
+    let p20 = circle_size / 100 * 25;
+
+    if a >= p80 && b <= p20 {
+        return a as i32 - (b + circle_size) as i32;
+    }
+
+    if b >= p80 && a <= p20 {
+        return (a + circle_size) as i32 - b as i32
+    }
+
+    return a as i32 - b as i32;
+}
+
 type DirectSoundCreateFn = extern "C" fn(
     pcguiddevice: *const Guid, 
     ppds: *mut Option<IDirectSound>, 
@@ -498,15 +514,6 @@ fn main() -> windows::Result<()> {
                 let mut part1size = 0u32;
                 let mut part2size = 0u32;
 
-                let running_bytes = game.sound_sample_idx * game.sound_params.bytes_per_sample();
-
-                debug!(
-                    "diff between write_cur and own byte tracker {} {} {}",
-                    write_cur,
-                    running_bytes,
-                    running_bytes as i32 - write_cur as i32 ,
-                );
-
                 let mut byte_to_lock = game.sound_sample_idx * game.sound_params.bytes_per_sample();
                 let mut bytes_to_write = game.sound_params.buf_size_bytes()
                                         / (game.sound_params.buf_size_seconds as u32 * 1000)
@@ -514,9 +521,17 @@ fn main() -> windows::Result<()> {
 
                 // in case we suffer some latency, increase the amount of bytes to write
                 // to catch up with dsound's write cursor
-                let will_wrap = byte_to_lock + bytes_to_write > game.sound_params.buf_size_bytes();
-                if !will_wrap && byte_to_lock < write_cur {
-                    bytes_to_write += (write_cur - byte_to_lock) * 2;
+                let tracker_dist = circular_distance(byte_to_lock, write_cur, game.sound_params.buf_size_bytes());
+
+                debug!(
+                    "diff between write_cur and own byte tracker {} {} {}",
+                    write_cur,
+                    byte_to_lock,
+                    tracker_dist
+                );
+
+                if tracker_dist < bytes_to_write as i32 {
+                    bytes_to_write += tracker_dist.abs() as u32 * 2;
                 }
 
                 // preventing overflow if the game loop hangs for whatever reason,
@@ -524,6 +539,8 @@ fn main() -> windows::Result<()> {
                 if bytes_to_write > game.sound_params.buf_size_bytes() {
                     bytes_to_write = game.sound_params.buf_size_bytes();
                 }
+
+                debug!("final bytes_to_write {}", bytes_to_write);
 
                 debug_assert!(
                     buf.Lock(
