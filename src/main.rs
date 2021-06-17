@@ -68,14 +68,14 @@ macro_rules! u32_rgba {
 
 fn circular_distance(a: u32, b: u32, circle_size: u32) -> i32 {
 
-    let p80 = circle_size / 100 * 75;
-    let p20 = circle_size / 100 * 25;
+    let ending_block = circle_size / 100 * 75;
+    let starting_block = circle_size / 100 * 25;
 
-    if a >= p80 && b <= p20 {
+    if a >= ending_block && b <= starting_block {
         return a as i32 - (b + circle_size) as i32;
     }
 
-    if b >= p80 && a <= p20 {
+    if b >= ending_block && a <= starting_block {
         return (a + circle_size) as i32 - b as i32
     }
 
