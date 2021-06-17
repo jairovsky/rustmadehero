@@ -8,7 +8,7 @@ use bindings::{Windows::Win32::Graphics::Gdi::{
         HBITMAP, RGBQUAD, SRCCOPY,
     }, Windows::Win32::Media::Audio::DirectMusic::{
         IDirectSound, IDirectSoundBuffer, DSBCAPS_PRIMARYBUFFER, DSBCAPS_GLOBALFOCUS, DSBLOCK_ENTIREBUFFER, DSBLOCK_FROMWRITECURSOR,
-        DSBUFFERDESC, DirectSoundCreate, DSBPLAY_LOOPING, DSBSTATUS_LOOPING
+        DSBUFFERDESC, DirectSoundCreate, DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBCAPS_GETCURRENTPOSITION2
     },
     Windows::Win32::Media::Multimedia::{ WAVEFORMATEX, WAVE_FORMAT_PCM }, Windows::Win32::System::Diagnostics::Debug::GetLastError,
     Windows::Win32::{Media::Audio::DirectMusic::DSSCL_PRIORITY, System::SystemServices::{
@@ -214,7 +214,7 @@ fn win32_init_dsound(game: &mut Win32Game) {
                         dwSize: std::mem::size_of::<DSBUFFERDESC>() as u32,
                         dwBufferBytes: game.sound_params.buf_size_bytes(),
                         lpwfxFormat: &mut wave_format,
-                        dwFlags: DSBCAPS_GLOBALFOCUS,
+                        dwFlags: DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2,
                         ..Default::default()
                     };
                     debug_assert!(
