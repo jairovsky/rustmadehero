@@ -460,12 +460,8 @@ fn main() -> windows::Result<()> {
 
         let mut x_offset = 10;
         let mut y_offset = 10;
-        let mut square_wave_sign = 1;
-        let mut square_wave_sample_counter = 0;
-        let mut square_wave_len = 30;
-        let mut sine_wave_sign = 1;
         let mut sine_wave_sample_counter = 0;
-        let mut sine_wave_len = 30;
+        let mut sine_wave_half_len = 30;
         let amplitude = 2000;
 
         win32_load_xinput(&mut game);
@@ -487,11 +483,11 @@ fn main() -> windows::Result<()> {
 
             if game.pad1.up {
                 // y_offset -= 5;
-                square_wave_len += 1;
+                sine_wave_half_len += 1;
             }
             if game.pad1.down {
                 // y_offset += 5;
-                square_wave_len -= 1;
+                sine_wave_half_len -= 1;
             }
             if game.pad1.left {
                 x_offset -= 5;
@@ -560,41 +556,40 @@ fn main() -> windows::Result<()> {
 
                 let mut part1ptrwalk = part1ptr as *mut i16;
                 for sample_idx in (0..part1size).step_by(game.sound_params.bytes_per_sample() as usize) {
-                    // *part1ptrwalk = square_wave_sign * amplitude;
-                    // part1ptrwalk=part1ptrwalk.add(1);
-                    // *part1ptrwalk = square_wave_sign * amplitude;
-                    // part1ptrwalk=part1ptrwalk.add(1);
-                    square_wave_sample_counter += 1;
+                    let radians = (
+                        (std::f32::consts::PI * 2.0)
+                        / (sine_wave_half_len * 2) as f32
+                        * sine_wave_sample_counter as f32
+                    ) as f32;
+                    let sample = (radians.sin() * amplitude as f32) as i16;
+                    *part1ptrwalk = sample;
+                    part1ptrwalk=part1ptrwalk.add(1);
+                    *part1ptrwalk = sample;
+                    part1ptrwalk=part1ptrwalk.add(1);
                     game.sound_sample_idx += 1;
-                    if square_wave_sample_counter >= square_wave_len {
-                        square_wave_sample_counter = 0;
-                        square_wave_sign *= -1;
-                    }
-
-                    let sign_wave_peak = sine_wave_sign * amplitude;
-                    todo!("compute the sample position, accounting for changes in wave length");
-                    *part1ptrwalk = si * amplitude;
-                    part1ptrwalk=part1ptrwalk.add(1);
-                    *part1ptrwalk = square_wave_sign * amplitude;
-                    part1ptrwalk=part1ptrwalk.add(1);
-                    if sine_wave_sample_counter >= sine_wave_len {
+                    sine_wave_sample_counter += 1;
+                    if sine_wave_sample_counter >= sine_wave_half_len * 2 {
                         sine_wave_sample_counter = 0;
-                        sine_wave_sign *= -1;
                     }
                     game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
                 }
 
                 let mut part2ptrwalk = part2ptr as *mut i16;
                 for sample_idx in (0..part2size).step_by(game.sound_params.bytes_per_sample() as usize) {
-                    *part2ptrwalk = square_wave_sign * amplitude;
+                    let radians = (
+                        (std::f32::consts::PI * 2.0)
+                        / (sine_wave_half_len * 2) as f32
+                        * sine_wave_sample_counter as f32
+                    ) as f32;
+                    let sample = (radians.sin() * amplitude as f32) as i16;
+                    *part2ptrwalk = sample;
                     part2ptrwalk=part2ptrwalk.add(1);
-                    *part2ptrwalk = square_wave_sign * amplitude;
+                    *part2ptrwalk = sample;
                     part2ptrwalk=part2ptrwalk.add(1);
-                    square_wave_sample_counter += 1;
                     game.sound_sample_idx += 1;
-                    if square_wave_sample_counter >= square_wave_len {
-                        square_wave_sample_counter = 0;
-                        square_wave_sign *= -1;
+                    sine_wave_sample_counter += 1;
+                    if sine_wave_sample_counter >= sine_wave_half_len * 2 {
+                        sine_wave_sample_counter = 0;
                     }
                     game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
                 }
