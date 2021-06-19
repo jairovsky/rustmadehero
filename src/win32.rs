@@ -1,5 +1,3 @@
-#![windows_subsystem = "windows"]
-
 use log::debug;
 
 use bindings::{Windows::Win32::Graphics::Gdi::{
