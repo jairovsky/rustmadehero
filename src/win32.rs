@@ -58,10 +58,13 @@ fn debug_last_err() {
     unsafe { debug!("{:?}", GetLastError()) }
 }
 
-macro_rules! u32_rgba {
-    ( $r:expr, $g: expr, $b: expr, $a: expr ) => { 
-        ($a << 24) + ($r << 16) + ($g << 8) + $b
-    }
+fn win32_u32_argb(
+    a: u32,
+    r: u32,
+    g: u32,
+    b: u32,
+) -> u32 {
+    (a << 24) + (r << 16) + (g << 8) + b
 }
 
 fn circular_distance(a: u32, b: u32, circle_size: u32) -> i32 {
@@ -286,20 +289,6 @@ fn win32_render(game: &Win32Game) {
     }
 }
 
-fn win32_render_weird_gradient(game: &mut Win32Game, xoffset: i32, yoffset: i32) {
-
-    for y in (0..game.bitmap_info.bmiHeader.biHeight) {
-        for x in 0..game.bitmap_info.bmiHeader.biWidth {
-            let idx = (y * game.bitmap_info.bmiHeader.biWidth + x) as usize;
-            if (x-xoffset) % 100 == 0 || (y-yoffset) % 100 == 0 {
-                game.bitmap_mem[idx]= u32_rgba!( 0, 255, 0, 0);
-            } else {
-                game.bitmap_mem[idx]= u32_rgba!( 0, 0, 0, 0);
-            }
-        }
-    }
-}
-
 fn win32_resize_bitmap_buffer(game: &mut Win32Game) {
 
     game.bitmap_info = BITMAPINFO {
@@ -385,6 +374,8 @@ extern "system" fn window_event_handler(
 }
 
 fn main() -> windows::Result<()> {
+    use crate::rmh;
+
     log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
 
@@ -494,7 +485,14 @@ fn main() -> windows::Result<()> {
                 x_offset += 5;
             }
 
-            win32_render_weird_gradient(&mut game, x_offset, y_offset);
+            rmh::render_gfx(
+                &mut game.bitmap_mem,
+                game.bitmap_info.bmiHeader.biWidth,
+                game.bitmap_info.bmiHeader.biHeight,
+                x_offset,
+                y_offset,
+                &win32_u32_argb
+            );
             win32_render(&game);
 
             frame_timer_diff = frame_timer.elapsed().as_millis();
