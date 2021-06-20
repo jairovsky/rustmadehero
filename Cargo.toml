@@ -12,3 +12,4 @@ bindings = { package = "bindings", path = "bindings" }
 widestring = "0.4.3"
 log = "0.4.8"
 win_dbg_logger = "0.1.0"
+byteorder = "1.4.3"

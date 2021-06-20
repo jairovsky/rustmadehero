@@ -1,3 +1,5 @@
+use std::io::{Read, Seek};
+
 use log::debug;
 
 use bindings::{Windows::Win32::Graphics::Gdi::{
@@ -22,6 +24,8 @@ use bindings::{Windows::Win32::Graphics::Gdi::{
 use windows::{HRESULT, Guid, IUnknown};
 
 use widestring::WideCString;
+
+use byteorder::{ReadBytesExt, LittleEndian};
 
 trait PWSTRCreator {
     fn from_str(text: &'static str) -> PWSTR;
@@ -457,6 +461,16 @@ fn main() -> windows::Result<()> {
 
         win32_init_dsound(&mut game);
 
+        let mut pwd = std::env::current_dir().expect("valid pwd");
+        pwd.push("res/walmart_kid_remix.wav");
+        let mut f = std::fs::File::open(&pwd).expect("open file");
+        f.seek(std::io::SeekFrom::Start(0x28));
+        let data_bytes = f.read_u32::<LittleEndian>().expect("get size of data subchunk");
+        let mut data_subchunk_buf = vec![0i16; data_bytes as usize / std::mem::size_of::<i16>()];
+
+        f.read_i16_into::<LittleEndian>(&mut data_subchunk_buf);
+        let mut fidx = 0;
+
         let mut frame_timer = std::time::Instant::now();
         let mut frame_timer_diff = 0u128;
 
@@ -557,11 +571,16 @@ fn main() -> windows::Result<()> {
                         / (sine_wave_half_len * 2) as f32
                         * sine_wave_sample_counter as f32
                     ) as f32;
-                    let sample = (radians.sin() * amplitude as f32) as i16;
+                    // let sample = (radians.sin() * amplitude as f32) as i16;
+                    let sample = data_subchunk_buf[fidx];
                     *part1ptrwalk = sample;
                     part1ptrwalk=part1ptrwalk.add(1);
+                    fidx += 1;
+                    let sample = data_subchunk_buf[fidx];
                     *part1ptrwalk = sample;
                     part1ptrwalk=part1ptrwalk.add(1);
+                    fidx += 1;
+                    fidx %= data_subchunk_buf.len();
                     game.sound_sample_idx += 1;
                     sine_wave_sample_counter += 1;
                     if sine_wave_sample_counter >= sine_wave_half_len * 2 {
@@ -577,11 +596,16 @@ fn main() -> windows::Result<()> {
                         / (sine_wave_half_len * 2) as f32
                         * sine_wave_sample_counter as f32
                     ) as f32;
-                    let sample = (radians.sin() * amplitude as f32) as i16;
+                    // let sample = (radians.sin() * amplitude as f32) as i16;
+                    let sample = data_subchunk_buf[fidx];
                     *part2ptrwalk = sample;
                     part2ptrwalk=part2ptrwalk.add(1);
+                    fidx += 1;
+                    let sample = data_subchunk_buf[fidx];
                     *part2ptrwalk = sample;
                     part2ptrwalk=part2ptrwalk.add(1);
+                    fidx += 1;
+                    fidx %= data_subchunk_buf.len();
                     game.sound_sample_idx += 1;
                     sine_wave_sample_counter += 1;
                     if sine_wave_sample_counter >= sine_wave_half_len * 2 {
