@@ -1,6 +1,7 @@
 use std::io::{Read, Seek};
 
 use log::debug;
+use log::info;
 
 use bindings::{Windows::Win32::Graphics::Gdi::{
         BeginPaint, CreateDIBSection, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS, HDC,
@@ -180,18 +181,15 @@ fn win32_init_dsound(game: &mut Win32Game) {
         unsafe {
             if let Some(addr) = GetProcAddress(dll, "DirectSoundCreate") {
                 let direct_sound_create: DirectSoundCreateFn = std::mem::transmute_copy(&addr);
-                debug_assert!(
-                    direct_sound_create(std::ptr::null_mut(), &mut game.dsound, std::ptr::null_mut()).is_ok()
-                );
-                debug_assert!(
-                    game.dsound.is_some()
-                );
+
+                let result = direct_sound_create(std::ptr::null_mut(), &mut game.dsound, std::ptr::null_mut());
+                debug_assert!(result.is_ok());
+                debug_assert!(game.dsound.is_some());
 
                 if let Some(dsound) = &game.dsound {
 
-                    debug_assert!(
-                        dsound.SetCooperativeLevel(game.window, DSSCL_PRIORITY).is_ok()
-                    );
+                    let result = dsound.SetCooperativeLevel(game.window, DSSCL_PRIORITY);
+                    debug_assert!(result.is_ok());
 
                     let mut wave_format = WAVEFORMATEX::new_pcm(
                         game.sound_params.n_channels,
@@ -205,14 +203,13 @@ fn win32_init_dsound(game: &mut Win32Game) {
                         ..Default::default()
                     };
                     let mut dsound_buffer: Option<IDirectSoundBuffer> = None;
-                    debug_assert!(
-                        dsound.CreateSoundBuffer(buffer_desc, &mut dsound_buffer, None).is_ok()
-                    );
+
+                    let result = dsound.CreateSoundBuffer(buffer_desc, &mut dsound_buffer, None);
+                    debug_assert!(result.is_ok());
 
                     if let Some(dsound_buffer) = dsound_buffer {
-                        debug_assert!(
-                            dsound_buffer.SetFormat(&mut wave_format).is_ok()
-                        );
+                        let result = dsound_buffer.SetFormat(&mut wave_format);
+                        debug_assert!(result.is_ok());
                     }
 
                     let sec_buffer_desc = &mut DSBUFFERDESC {
@@ -222,16 +219,15 @@ fn win32_init_dsound(game: &mut Win32Game) {
                         dwFlags: DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2,
                         ..Default::default()
                     };
-                    debug_assert!(
-                        dsound.CreateSoundBuffer(sec_buffer_desc, &mut game.dsound_buffer, None).is_ok()
-                    );
+                    let result = dsound.CreateSoundBuffer(sec_buffer_desc, &mut game.dsound_buffer, None);
+                    debug_assert!(result.is_ok());
                     
                     if let Some(buf) = &game.dsound_buffer {
 
                         let mut part1ptr: *mut std::ffi::c_void = std::ptr::null_mut();
                         let mut part1size = 0u32;
 
-                        debug_assert!(buf.Lock(
+                        let result = buf.Lock(
                             0,
                             0,
                             &mut part1ptr,
@@ -239,7 +235,8 @@ fn win32_init_dsound(game: &mut Win32Game) {
                             std::ptr::null_mut(),
                             std::ptr::null_mut(),
                             DSBLOCK_ENTIREBUFFER | DSBLOCK_FROMWRITECURSOR
-                        ).is_ok());
+                        );
+                        debug_assert!(result.is_ok());
 
                         let mut part1ptr_iter = part1ptr as *mut u32;
                         for i in (0..part1size).step_by(std::mem::size_of::<u32>()) {
@@ -247,9 +244,8 @@ fn win32_init_dsound(game: &mut Win32Game) {
                             part1ptr_iter = part1ptr_iter.add(1);
                         }
 
-                        debug_assert!(
-                            buf.Unlock(part1ptr, part1size, std::ptr::null_mut(), 0).is_ok()
-                        );
+                        let result = buf.Unlock(part1ptr, part1size, std::ptr::null_mut(), 0);
+                        debug_assert!(result.is_ok());
                     }
                 }
             }
@@ -380,7 +376,7 @@ extern "system" fn window_event_handler(
 fn main() -> windows::Result<()> {
     use crate::rmh;
 
-    log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
+    // log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
 
     let h_instance = unsafe { GetModuleHandleW(None) };
@@ -552,17 +548,16 @@ fn main() -> windows::Result<()> {
 
                 debug!("final bytes_to_write {}", bytes_to_write);
 
-                debug_assert!(
-                    buf.Lock(
-                        byte_to_lock,
-                        bytes_to_write,
-                        &mut part1ptr,
-                        &mut part1size,
-                        &mut part2ptr,
-                        &mut part2size,
-                        0
-                    ).is_ok()
+                let result = buf.Lock(
+                    byte_to_lock,
+                    bytes_to_write,
+                    &mut part1ptr,
+                    &mut part1size,
+                    &mut part2ptr,
+                    &mut part2size,
+                    0
                 );
+                debug_assert!(result.is_ok());
 
                 let mut part1ptrwalk = part1ptr as *mut i16;
                 for sample_idx in (0..part1size).step_by(game.sound_params.bytes_per_sample() as usize) {
@@ -614,14 +609,12 @@ fn main() -> windows::Result<()> {
                     game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
                 }
 
-                debug_assert!(
-                    buf.Unlock(part1ptr, part1size, part2ptr, part2size).is_ok()
-                );
+                let result = buf.Unlock(part1ptr, part1size, part2ptr, part2size);
+                debug_assert!(result.is_ok());
 
                 if !game.sound_playing {
-                    debug_assert!(
-                        buf.Play(0, 0, DSBPLAY_LOOPING).is_ok()
-                    );
+                    let result = buf.Play(0, 0, DSBPLAY_LOOPING);
+                    debug_assert!(result.is_ok());
                     game.sound_playing = true;
                 }
             }
