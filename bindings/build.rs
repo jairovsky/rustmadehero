@@ -20,5 +20,6 @@ fn main() {
             WM_CREATE, CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_VREDRAW, CS_HREDRAW, WM_KEYDOWN, WM_KEYUP
         },
         Windows::Win32::UI::DisplayDevices::RECT,
+        Windows::Win32::UI::KeyboardAndMouseInput::GetKeyState,
     );
 }
