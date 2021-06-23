@@ -438,7 +438,7 @@ fn main() -> windows::Result<()> {
                 bits_per_sample: 16,
                 n_channels: 2,
                 n_samples_per_sec: 48000,
-                buf_size_seconds: 1,
+                buf_size_seconds: 2,
             },
             sound_sample_idx: 0,
             sound_playing: false,
@@ -544,10 +544,9 @@ fn main() -> windows::Result<()> {
                     tracker_dist
                 );
 
-                // in case we suffer some latency, increase the amount of bytes to write
-                // to catch up with dsound's write cursor
-                if tracker_dist < bytes_to_write as i32 {
-                    bytes_to_write += tracker_dist.abs() as u32 * 2;
+                let bytes_to_consider_underflow = (game.sound_params.buf_size_bytes() / 100 * 1);
+                if tracker_dist < bytes_to_consider_underflow as i32 {
+                    bytes_to_write += bytes_to_consider_underflow;
                 }
 
                 // preventing overflow if the game loop hangs for whatever reason,
