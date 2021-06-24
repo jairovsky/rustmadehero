@@ -11,6 +11,7 @@ use bindings::{Windows::Win32::Graphics::Gdi::{
         IDirectSound, IDirectSoundBuffer, DSBCAPS_PRIMARYBUFFER, DSBCAPS_GLOBALFOCUS, DSBLOCK_ENTIREBUFFER, DSBLOCK_FROMWRITECURSOR,
         DSBUFFERDESC, DirectSoundCreate, DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBCAPS_GETCURRENTPOSITION2
     },
+    Windows::Win32::UI::KeyboardAndMouseInput::GetKeyState,
     Windows::Win32::Media::Multimedia::{ WAVEFORMATEX, WAVE_FORMAT_PCM }, Windows::Win32::System::Diagnostics::Debug::GetLastError,
     Windows::Win32::{Media::Audio::DirectMusic::DSSCL_PRIORITY, System::SystemServices::{
         GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE
@@ -124,6 +125,7 @@ struct Pad {
     down: bool,
     left: bool,
     right: bool,
+    packet: u32,
 }
 
 struct Win32Game {
@@ -253,16 +255,35 @@ fn win32_init_dsound(game: &mut Win32Game) {
     }
 }
 
-fn win32_get_pad_input(game: &mut Win32Game) {
+fn win32_get_pad_input(game: &mut Win32Game) -> bool {
     if let Some(xinput) = &mut game.xinput {
         let mut state = XINPUT_STATE::default();
         (xinput.get_state)(0, &mut state);
 
-        game.pad1.up = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP as u16) != 0;
-        game.pad1.down = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN as u16) != 0;
-        game.pad1.left = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT as u16) != 0;
-        game.pad1.right = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT as u16) != 0;
+        if state.dwPacketNumber != game.pad1.packet {
+            game.pad1.packet = state.dwPacketNumber;
+            game.pad1.up = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP as u16) != 0;
+            game.pad1.down = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN as u16) != 0;
+            game.pad1.left = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT as u16) != 0;
+            game.pad1.right = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT as u16) != 0;
+            return true;
+        }
     }
+
+    false
+}
+
+
+unsafe fn win32_get_key_state(k_code: i32) -> bool {
+    (GetKeyState(k_code) & (1<<15)) != 0
+}
+
+fn win32_get_kbd_input(game: &mut Win32Game) {
+
+    game.pad1.up = unsafe {win32_get_key_state(0x57)};
+    game.pad1.down = unsafe {win32_get_key_state(0x53)};
+    game.pad1.left = unsafe {win32_get_key_state(0x41)};
+    game.pad1.right = unsafe {win32_get_key_state(0x44)};
 }
 
 fn win32_render(game: &Win32Game) {
@@ -376,7 +397,7 @@ extern "system" fn window_event_handler(
 fn main() -> windows::Result<()> {
     use crate::rmh;
 
-    // log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
+    log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
 
     let h_instance = unsafe { GetModuleHandleW(None) };
@@ -413,6 +434,7 @@ fn main() -> windows::Result<()> {
                 down: false,
                 left: false,
                 right: false,
+                packet: 0,
             },
             dsound: None,
             dsound_buffer: None,
@@ -420,7 +442,7 @@ fn main() -> windows::Result<()> {
                 bits_per_sample: 16,
                 n_channels: 2,
                 n_samples_per_sec: 48000,
-                buf_size_seconds: 1,
+                buf_size_seconds: 2,
             },
             sound_sample_idx: 0,
             sound_playing: false,
@@ -478,7 +500,9 @@ fn main() -> windows::Result<()> {
                 DispatchMessageW(&msg);
             }
 
-            win32_get_pad_input(&mut game);
+            if !win32_get_pad_input(&mut game) {
+                win32_get_kbd_input(&mut game);
+            }
 
             if game.pad1.up {
                 // y_offset -= 5;
@@ -534,10 +558,9 @@ fn main() -> windows::Result<()> {
                     tracker_dist
                 );
 
-                // in case we suffer some latency, increase the amount of bytes to write
-                // to catch up with dsound's write cursor
-                if tracker_dist < bytes_to_write as i32 {
-                    bytes_to_write += tracker_dist.abs() as u32 * 2;
+                let bytes_to_consider_underflow = (game.sound_params.buf_size_bytes() / 100 * 1);
+                if tracker_dist < bytes_to_consider_underflow as i32 {
+                    bytes_to_write += bytes_to_consider_underflow;
                 }
 
                 // preventing overflow if the game loop hangs for whatever reason,
