@@ -473,7 +473,6 @@ fn main() -> windows::Result<()> {
         let mut y_offset = 10;
         let mut sine_wave_sample_counter = 0;
         let mut sine_wave_half_len = 30;
-        let amplitude = 2000;
 
         win32_load_xinput(&mut game);
 
@@ -539,11 +538,6 @@ fn main() -> windows::Result<()> {
                 let mut write_cur = 0u32;
                 buf.GetCurrentPosition(&mut play_cur, &mut write_cur);
 
-                let mut part1ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-                let mut part2ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-                let mut part1size = 0u32;
-                let mut part2size = 0u32;
-
                 let mut byte_to_lock = game.sound_sample_idx * game.sound_params.bytes_per_sample();
                 let mut bytes_to_write = game.sound_params.buf_size_bytes()
                                         / (game.sound_params.buf_size_seconds as u32 * 1000)
@@ -571,6 +565,19 @@ fn main() -> windows::Result<()> {
 
                 debug!("final bytes_to_write {}", bytes_to_write);
 
+                let mut audio_samples = vec![0i16; (bytes_to_write/2) as usize];
+                rmh::render_audio(&mut audio_samples, sine_wave_half_len, &mut sine_wave_sample_counter);
+                for i in &mut audio_samples {
+                    *i = data_subchunk_buf[fidx];
+                    fidx += 1;
+                    fidx %= data_subchunk_buf.len();
+                }
+ 
+                let mut part1ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+                let mut part2ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+                let mut part1size = 0u32;
+                let mut part2size = 0u32;
+
                 let result = buf.Lock(
                     byte_to_lock,
                     bytes_to_write,
@@ -582,54 +589,17 @@ fn main() -> windows::Result<()> {
                 );
                 debug_assert!(result.is_ok());
 
-                let mut part1ptrwalk = part1ptr as *mut i16;
-                for sample_idx in (0..part1size).step_by(game.sound_params.bytes_per_sample() as usize) {
-                    let radians = (
-                        (std::f32::consts::PI * 2.0)
-                        / (sine_wave_half_len * 2) as f32
-                        * sine_wave_sample_counter as f32
-                    ) as f32;
-                    // let sample = (radians.sin() * amplitude as f32) as i16;
-                    let sample = data_subchunk_buf[fidx];
-                    *part1ptrwalk = sample;
-                    part1ptrwalk=part1ptrwalk.add(1);
-                    fidx += 1;
-                    let sample = data_subchunk_buf[fidx];
-                    *part1ptrwalk = sample;
-                    part1ptrwalk=part1ptrwalk.add(1);
-                    fidx += 1;
-                    fidx %= data_subchunk_buf.len();
-                    game.sound_sample_idx += 1;
-                    sine_wave_sample_counter += 1;
-                    if sine_wave_sample_counter >= sine_wave_half_len * 2 {
-                        sine_wave_sample_counter = 0;
-                    }
-                    game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
-                }
+                game.sound_sample_idx += (bytes_to_write / game.sound_params.bytes_per_sample());
+                game.sound_sample_idx %= (game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample());
 
-                let mut part2ptrwalk = part2ptr as *mut i16;
-                for sample_idx in (0..part2size).step_by(game.sound_params.bytes_per_sample() as usize) {
-                    let radians = (
-                        (std::f32::consts::PI * 2.0)
-                        / (sine_wave_half_len * 2) as f32
-                        * sine_wave_sample_counter as f32
-                    ) as f32;
-                    // let sample = (radians.sin() * amplitude as f32) as i16;
-                    let sample = data_subchunk_buf[fidx];
-                    *part2ptrwalk = sample;
-                    part2ptrwalk=part2ptrwalk.add(1);
-                    fidx += 1;
-                    let sample = data_subchunk_buf[fidx];
-                    *part2ptrwalk = sample;
-                    part2ptrwalk=part2ptrwalk.add(1);
-                    fidx += 1;
-                    fidx %= data_subchunk_buf.len();
-                    game.sound_sample_idx += 1;
-                    sine_wave_sample_counter += 1;
-                    if sine_wave_sample_counter >= sine_wave_half_len * 2 {
-                        sine_wave_sample_counter = 0;
-                    }
-                    game.sound_sample_idx %= game.sound_params.buf_size_bytes() / game.sound_params.bytes_per_sample();
+                let mut sample_transfer_total = 0;
+                for i in (0..part1size / game.sound_params.n_channels as u32) {
+                    *((part1ptr as *mut i16).add(i as usize)) = audio_samples[sample_transfer_total];
+                    sample_transfer_total += 1
+                }
+                for i in (0..part2size / game.sound_params.n_channels as u32) {
+                    *((part2ptr as *mut i16).add(i as usize)) = audio_samples[sample_transfer_total];
+                    sample_transfer_total += 1
                 }
 
                 let result = buf.Unlock(part1ptr, part1size, part2ptr, part2size);
