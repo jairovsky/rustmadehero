@@ -2,6 +2,19 @@ use log::debug;
 
 type BuildPixelFn<'a> = &'a dyn Fn(u32,u32,u32,u32,) -> u32;
 
+pub struct Pad {
+    pub up: bool,
+    pub down: bool,
+    pub left: bool,
+    pub right: bool,
+}
+
+pub struct GameState {
+    pub x_offset: i32,
+    pub y_offset: i32,
+    pub sine_wave_half_len: i32,
+}
+
 pub fn render_gfx(
     mem: &mut Vec<u32>,
     w: i32,
@@ -41,5 +54,25 @@ pub fn render_audio(
         if *t_sine >= sine_wave_half_len * 2 {
             *t_sine = 0;
         }
+    }
+}
+
+pub fn update_state(
+    state: &mut GameState,
+    pad: &Pad,
+) {
+    if pad.up {
+        // state.y_offset -= 5;
+        state.sine_wave_half_len += 1;
+    }
+    if pad.down {
+        // state.y_offset += 5;
+        state.sine_wave_half_len -= 1;
+    }
+    if pad.left {
+        state.x_offset -= 5;
+    }
+    if pad.right {
+        state.x_offset += 5;
     }
 }

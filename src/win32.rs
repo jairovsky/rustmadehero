@@ -115,15 +115,6 @@ impl SoundParams {
         (self.bits_per_sample * self.n_channels / 8) as u32
     }
 }
-
-struct Pad {
-    up: bool,
-    down: bool,
-    left: bool,
-    right: bool,
-    packet: u32,
-}
-
 struct Win32Game {
     running: bool,
     bitmap_info: BITMAPINFO,
@@ -132,12 +123,14 @@ struct Win32Game {
     window_width: u32,
     window_height: u32,
     xinput: Option<XInput>,
-    pad1: Pad,
+    pad1: crate::rmh::Pad,
+    pad1packet: u32,
     dsound_buffer: Option<IDirectSoundBuffer>,
     dsound: Option<IDirectSound>, //necessary to hold this ref, otherwise the buffer gets deallocated
     sound_params: SoundParams,
     sound_sample_idx: u32,
     sound_playing: bool,
+    state: crate::rmh::GameState,
 }
 
 fn win32_get_game(window: HWND) -> &'static mut Win32Game {
@@ -256,8 +249,8 @@ fn win32_get_pad_input(game: &mut Win32Game) -> bool {
         let mut state = XINPUT_STATE::default();
         (xinput.get_state)(0, &mut state);
 
-        if state.dwPacketNumber != game.pad1.packet {
-            game.pad1.packet = state.dwPacketNumber;
+        if state.dwPacketNumber != game.pad1packet {
+            game.pad1packet = state.dwPacketNumber;
             game.pad1.up = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP as u16) != 0;
             game.pad1.down = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_DOWN as u16) != 0;
             game.pad1.left = (state.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT as u16) != 0;
@@ -425,13 +418,13 @@ fn main() -> windows::Result<()> {
             window_width: 720,
             window_height: 480,
             xinput: None,
-            pad1: Pad{
+            pad1: crate::rmh::Pad{
                 up: false,
                 down: false,
                 left: false,
                 right: false,
-                packet: 0,
             },
+            pad1packet: 0,
             dsound: None,
             dsound_buffer: None,
             sound_params: SoundParams {
@@ -442,6 +435,11 @@ fn main() -> windows::Result<()> {
             },
             sound_sample_idx: 0,
             sound_playing: false,
+            state: crate::rmh::GameState {
+                x_offset: 0,
+                y_offset: 0,
+                sine_wave_half_len: 30,
+            }
         };
 
         let hwnd = CreateWindowExW(
@@ -465,10 +463,7 @@ fn main() -> windows::Result<()> {
 
         win32_resize_bitmap_buffer(&mut game);
 
-        let mut x_offset = 10;
-        let mut y_offset = 10;
         let mut sine_wave_sample_counter = 0;
-        let mut sine_wave_half_len = 30;
 
         win32_load_xinput(&mut game);
 
@@ -489,27 +484,14 @@ fn main() -> windows::Result<()> {
                 win32_get_kbd_input(&mut game);
             }
 
-            if game.pad1.up {
-                // y_offset -= 5;
-                sine_wave_half_len += 1;
-            }
-            if game.pad1.down {
-                // y_offset += 5;
-                sine_wave_half_len -= 1;
-            }
-            if game.pad1.left {
-                x_offset -= 5;
-            }
-            if game.pad1.right {
-                x_offset += 5;
-            }
+            rmh::update_state(&mut game.state, &game.pad1);
 
             rmh::render_gfx(
                 &mut game.bitmap_mem,
                 game.bitmap_info.bmiHeader.biWidth,
                 game.bitmap_info.bmiHeader.biHeight,
-                x_offset,
-                y_offset,
+                game.state.x_offset,
+                game.state.y_offset,
                 &win32_u32_argb
             );
             win32_render(&game);
@@ -552,7 +534,7 @@ fn main() -> windows::Result<()> {
                 debug!("final bytes_to_write {}", bytes_to_write);
 
                 let mut audio_samples = vec![0i16; (bytes_to_write/2) as usize];
-                rmh::render_audio(&mut audio_samples, sine_wave_half_len, &mut sine_wave_sample_counter);
+                rmh::render_audio(&mut audio_samples, game.state.sine_wave_half_len, &mut sine_wave_sample_counter);
  
                 let mut part1ptr: *mut std::ffi::c_void = std::ptr::null_mut();
                 let mut part2ptr: *mut std::ffi::c_void = std::ptr::null_mut();
