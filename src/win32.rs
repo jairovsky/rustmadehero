@@ -330,6 +330,20 @@ fn win32_resize_bitmap_buffer(game: &mut Win32Game) {
     game.bitmap_mem = vec![0; bitmap_size_pixels as usize];
 }
 
+fn wmi_videocontroller_refreshrate() -> u32 {
+    use wmi::{COMLibrary, WMIConnection, Variant};
+    let wmi_con = WMIConnection::new(COMLibrary::new().expect("COM connection").into()).expect("WMI connection");
+    let wmi_query: Vec<std::collections::HashMap<String, Variant>> =
+        wmi_con.raw_query("select CurrentRefreshRate from Win32_VideoController")
+            .expect("monitor refresh rate");
+
+    return match wmi_query[0]["CurrentRefreshRate"] {
+        Variant::I8(rate) => rate as u32,
+        _ => panic!("couldn't query monitor refresh rate"),
+    };
+}
+
+
 extern "system" fn window_event_handler(
     window: HWND,
     message: u32,
@@ -462,6 +476,8 @@ fn main() -> windows::Result<()> {
         debug_assert!(hwnd.0 != 0);
 
         game.window = hwnd;
+
+        let refresh_rate = wmi_videocontroller_refreshrate();
 
         win32_resize_bitmap_buffer(&mut game);
 

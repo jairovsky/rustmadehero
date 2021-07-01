@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 windows = "0.10.0"
+wmi = "0.8.1"
 bindings = { package = "bindings", path = "bindings" }
 widestring = "0.4.3"
 log = "0.4.8"
