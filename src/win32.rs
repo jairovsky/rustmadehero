@@ -3,8 +3,9 @@ use log::info;
 
 use bindings::{Windows::Win32::Graphics::Gdi::{
         BeginPaint, CreateDIBSection, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS, HDC,
-        StretchDIBits, DeleteObject, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        HBITMAP, RGBQUAD, SRCCOPY,
+        StretchDIBits, DeleteObject, GetDC, ReleaseDC, EnumDisplaySettingsW, MonitorFromWindow, GetMonitorInfoW,
+        ENUM_CURRENT_SETTINGS, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        HBITMAP, RGBQUAD, SRCCOPY, MONITOR_FROM_FLAGS, MONITORINFOEXW, MONITORINFO
     }, Windows::Win32::Media::Audio::DirectMusic::{
         IDirectSound, IDirectSoundBuffer, DSBCAPS_PRIMARYBUFFER, DSBCAPS_GLOBALFOCUS, DSBLOCK_ENTIREBUFFER, DSBLOCK_FROMWRITECURSOR,
         DSBUFFERDESC, DirectSoundCreate, DSBPLAY_LOOPING, DSBSTATUS_LOOPING, DSBCAPS_GETCURRENTPOSITION2
@@ -13,7 +14,7 @@ use bindings::{Windows::Win32::Graphics::Gdi::{
     Windows::Win32::Media::Multimedia::{ WAVEFORMATEX, WAVE_FORMAT_PCM }, Windows::Win32::System::Diagnostics::Debug::GetLastError,
     Windows::Win32::{Media::Audio::DirectMusic::DSSCL_PRIORITY, System::SystemServices::{
         GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE
-    }}, Windows::Win32::UI::DisplayDevices::RECT, Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON}, Windows::Win32::UI::WindowsAndMessaging::{
+    }}, Windows::Win32::UI::DisplayDevices::{RECT, DEVMODEW}, Windows::Win32::UI::MenusAndResources::{HCURSOR, HICON}, Windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
         RegisterClassExW, TranslateMessage, SetWindowLongPtrW, GetWindowLongPtrW, PeekMessageW, CW_USEDEFAULT, HWND,
         LPARAM, MSG, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_CLOSE, WM_PAINT, WM_SIZE,
@@ -323,6 +324,18 @@ fn win32_resize_bitmap_buffer(game: &mut Win32Game) {
     game.bitmap_mem = vec![0; bitmap_size_pixels as usize];
 }
 
+unsafe fn win32_refresh_rate(window: HWND) -> u32 {
+    let monitor = MonitorFromWindow(window, MONITOR_FROM_FLAGS::default());
+    let mut monitor_info_ex = &mut(MONITORINFOEXW::default()) as *mut MONITORINFOEXW;
+    let monitor_info: *mut MONITORINFO = std::mem::transmute(monitor_info_ex);
+    (*monitor_info).cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    GetMonitorInfoW(monitor, monitor_info);
+    let display_name = std::string::String::from_utf16(&(*monitor_info_ex).szDevice).expect("convert display name");
+    let mut display_settings: DEVMODEW = std::mem::MaybeUninit::uninit().assume_init();
+    EnumDisplaySettingsW(display_name, ENUM_CURRENT_SETTINGS, &mut display_settings);
+    return display_settings.dmDisplayFrequency;
+}
+
 extern "system" fn window_event_handler(
     window: HWND,
     message: u32,
@@ -460,6 +473,8 @@ fn main() -> windows::Result<()> {
         debug_assert!(hwnd.0 != 0);
 
         game.window = hwnd;
+
+        let display_refresh_rate = win32_refresh_rate(game.window);
 
         win32_resize_bitmap_buffer(&mut game);
 

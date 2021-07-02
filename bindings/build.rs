@@ -2,8 +2,10 @@ fn main() {
     windows::build!(
         Windows::Win32::Graphics::Gdi::{
             BeginPaint, CreateDIBSection, EndPaint, PatBlt, BLACKNESS, HBRUSH, PAINTSTRUCT, WHITENESS, HDC,
-            StretchDIBits, DeleteObject, CreateCompatibleDC, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-            DIB_RGB_COLORS, HBITMAP, RGBQUAD, SRCCOPY,
+            StretchDIBits, DeleteObject, CreateCompatibleDC, GetDC, ReleaseDC, EnumDisplaySettingsW,
+            MonitorFromWindow, GetMonitorInfoW,
+            BITMAPINFO, BITMAPINFOHEADER, BI_RGB, ENUM_CURRENT_SETTINGS,
+            DIB_RGB_COLORS, HBITMAP, RGBQUAD, SRCCOPY, MONITOR_FROM_FLAGS, MONITORINFOEXW, MONITORINFO
         },
         Windows::Win32::System::Diagnostics::Debug::GetLastError,
         Windows::Win32::System::SystemServices::{GetModuleHandleW, LoadLibraryW, GetProcAddress, LRESULT, PWSTR, HANDLE, HINSTANCE},
@@ -19,7 +21,7 @@ fn main() {
             WM_SIZE, WNDCLASSEXW, WNDCLASS_STYLES, WNDPROC, WPARAM, WS_OVERLAPPEDWINDOW, WS_VISIBLE, GWLP_USERDATA,
             WM_CREATE, CREATESTRUCTW, WM_DESTROY, PM_REMOVE, CS_VREDRAW, CS_HREDRAW, WM_KEYDOWN, WM_KEYUP
         },
-        Windows::Win32::UI::DisplayDevices::RECT,
+        Windows::Win32::UI::DisplayDevices::{RECT, DEVMODEW},
         Windows::Win32::UI::KeyboardAndMouseInput::GetKeyState,
     );
 }
